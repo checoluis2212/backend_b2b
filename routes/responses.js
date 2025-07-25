@@ -3,6 +3,7 @@ import express  from 'express';
 import Response from '../models/Response.js';
 
 const router = express.Router();
+router.use(express.json());
 const validButtons = ['cotizar','publicar','oportunidades'];
 
 router.post('/', async (req, res) => {
