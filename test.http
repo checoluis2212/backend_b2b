@@ -1,0 +1,12 @@
+### Test de responses
+POST http://localhost:3001/api/responses
+Content-Type: application/json
+
+{
+  "visitorId": "abc123-def456",
+  "option": "cotizar",
+  "referral": "https://google.com",
+  "utm_source": "newsletter",
+  "utm_medium": "email",
+  "timestamp": "2025-07-25T16:00:00.000Z"
+}
