@@ -1,40 +1,40 @@
 // backend/index.js
-import 'dotenv/config';
-import express         from 'express';
-import mongoose        from 'mongoose';
-import cors            from 'cors';
+import 'dotenv/config';              // carga las vars de .env
+import express       from 'express';
+import mongoose      from 'mongoose';
+import cors          from 'cors';
 import responsesRouter from './routes/responses.js';
 
 const app = express();
 
 // 1) Middlewares
-app.use(cors({ origin: '*' }));    // en producción limita a tu front
-app.use(express.json());           // parsea JSON en el body
+app.use(cors({ origin: '*' }));    // en prod pon tu dominio
+app.use(express.json());           // parsea JSON del body
 
 // 2) Conexión a MongoDB
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+  console.error('❌ Falta la variable MONGO_URI');
+  process.exit(1);
+}
 mongoose
-  .connect(process.env.MONGO_URI, {
-    // desde v4 ya no necesita opciones, pero no dañan
-    useNewUrlParser:    true,
-    useUnifiedTopology: true
-  })
+  .connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB conectado'))
-  .catch(err => console.error('❌ Error MongoDB:', err));
+  .catch(err => {
+    console.error('❌ Error MongoDB:', err);
+    process.exit(1);
+  });
 
 // 3) Rutas
 app.use('/api/responses', responsesRouter);
 
-// Ruta de verificación rápida
+// 4) Ruta de comprobación
 app.get('/', (_req, res) => {
   res.send('API viva ✔️');
 });
 
-// 4) Levantar el servidor
-// Render (y muchos hosts) exponen el puerto en process.env.PORT
+// 5) Arranque del servidor: Render te da el puerto en process.env.PORT
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🌐 Servidor escuchando en el puerto ${PORT}`);
 });
-
-// Si quisieras llevar esto a Vercel en modo serverless, en lugar de app.listen usarías:
-// export default app;
