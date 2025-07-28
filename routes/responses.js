@@ -1,3 +1,4 @@
+// backend/routes/responses.js
 import express from 'express';
 import Response from '../models/Response.js';
 import { URL } from 'url';
@@ -9,7 +10,7 @@ router.get('/', (_req, res) => {
   return res.send('✅ El router /api/responses funciona perfectamente');
 });
 
-// LISTAR TODAS
+// LISTAR TODAS LAS RESPUESTAS
 router.get('/all', async (_req, res) => {
   try {
     const list = await Response.find().sort({ createdAt: -1 });
@@ -24,60 +25,53 @@ const validButtons = ['cotizar', 'publicar', 'oportunidades'];
 
 router.post('/', async (req, res) => {
   console.log('📬 LLEGÓ UN POST:', req.body);
-  const { visitorId, button, currentUrl } = req.body;
+  const { visitorId, button, utmParams } = req.body;
 
+  // 1) Validación
   if (!visitorId || !validButtons.includes(button)) {
     return res
       .status(400)
       .json({ success: false, error: 'visitorId y button válidos son obligatorios' });
   }
 
-  // Extraer IP real
+  // 2) Extraer IP y referer
   const ip =
     req.headers['x-forwarded-for']?.split(',')[0].trim() ||
     req.connection.remoteAddress ||
     '';
-
-  // Referer de cabecera HTTP
   const referer = req.get('Referer') || '';
 
-  // Parsear UTM de la URL que manda el front
-  const utmParams = {};
-  if (currentUrl) {
-    try {
-      const url = new URL(currentUrl);
-      ['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].forEach(key => {
-        if (url.searchParams.has(key)) {
-          utmParams[key.replace('utm_','')] = url.searchParams.get(key);
-        }
-      });
-    } catch (e) {
-      console.warn('⚠️ URL inválida para parsing UTM:', currentUrl);
-    }
-  }
-
-  // Crear o actualizar documento
+  // 3) Intentamos encontrar un documento existente
   let doc = await Response.findOne({ visitorId });
+
   if (doc) {
+    // —> YA EXISTE: solo incrementamos el contador
     doc.buttonCounts[button] = (doc.buttonCounts[button] || 0) + 1;
-    doc.metadata = { ip, referer, utmParams };
     await doc.save();
   } else {
-    const initial = { cotizar:0, publicar:0, oportunidades:0 };
-    initial[button] = 1;
+    // —> PRIMERA INTERACCIÓN: guardamos metadata + contador inicial
+    const initialCounts = { cotizar: 0, publicar: 0, oportunidades: 0 };
+    initialCounts[button] = 1;
+
     doc = new Response({
       visitorId,
-      buttonCounts: initial,
-      metadata: { ip, referer, utmParams }
+      buttonCounts: initialCounts,
+      metadata: {
+        ip,
+        referer,
+        // utmParams viene del front (parsing en cliente), o {} si no hay
+        utmParams: typeof utmParams === 'object' ? utmParams : {},
+      }
     });
     await doc.save();
   }
 
-  res.json({
+  // 4) Devolvemos el estado actual
+  return res.json({
     success: true,
     visitorId: doc.visitorId,
     buttonCounts: doc.buttonCounts,
-    metadata: doc.metadata
+    metadata: doc.metadata,  // la verás solo con los datos de la 1ª interacción
   });
 });
 
