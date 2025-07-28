@@ -1,33 +1,39 @@
-// backend/index.js
+// index.js
 import 'dotenv/config';
-import express        from 'express';
-import mongoose       from 'mongoose';
-import cors           from 'cors';
+import express         from 'express';
+import mongoose        from 'mongoose';
+import cors            from 'cors';
 import responsesRouter from './routes/responses.js';
 
 const app = express();
 
-// Middlewares
-app.use(cors({ origin: '*' }));  // en prod puedes restringir a tu front
+// --- Middlewares ---
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Conexión a MongoDB
+// --- Conexión a MongoDB ---
 mongoose
   .connect(process.env.MONGO_URI, {
-    useNewUrlParser:    true,
-    useUnifiedTopology: true
+    // Las opciones useNewUrlParser y useUnifiedTopology
+    // ya no tienen efecto en mongoose v8+
   })
   .then(() => console.log('✅ MongoDB conectado'))
   .catch(err => console.error('❌ Error MongoDB:', err));
 
-// Rutas
+// --- Routes ---
 app.use('/api/responses', responsesRouter);
+app.get('/', (req, res) => res.send('API viva ✔️'));
 
-// Ruta de verificación
-app.get('/', (req, res) => {
-  res.send('API viva ✔️');
-});
+// --- Puerto para Render / Heroku / Node puro ---
+// Detectamos si estamos en Vercel Functions
+const isServerless = !!process.env.VERCEL;
 
-// **NO** llamamos a app.listen en serverless—
-// exportamos la app para Vercel
+if (!isServerless) {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, () => {
+    console.log(`🌐 Servidor escuchando en el puerto ${PORT}`);
+  });
+}
+
+// Exportamos app para Vercel (serverless)
 export default app;
