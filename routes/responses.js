@@ -3,9 +3,16 @@ import express  from 'express';
 import Response from '../models/Response.js';
 
 const router = express.Router();
+
+// 0) SANITY CHECK: esto debería responder 200 OK
+router.get('/', (_req, res) => {
+  return res.send('✅ El router /api/responses funciona perfectamente');
+});
+
 const validButtons = ['cotizar','publicar','oportunidades'];
 
 router.post('/', async (req, res) => {
+  console.log('📬 LLEGÓ UN POST:', req.body);   // para que veas en logs
   const { visitorId, button } = req.body;
   if (!visitorId || !validButtons.includes(button)) {
     return res
