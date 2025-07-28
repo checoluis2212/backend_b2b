@@ -7,9 +7,8 @@ import responsesRouter from './routes/responses.js';
 
 const app = express();
 
-// 1) Habilitar CORS global y responder preflight OPTIONS en todas las rutas
-app.use(cors({ origin: '*' }));
-app.options('*', cors({ origin: '*' }));
+// 1) Habilitar CORS global (incluye preflight OPTIONS)
+app.use(cors({ origin: '*' })); // en prod reemplaza '*' por tu dominio
 
 // 2) Parseo de JSON
 app.use(express.json());
@@ -31,12 +30,12 @@ mongoose
 // 4) Rutas de la API
 app.use('/api/responses', responsesRouter);
 
-// 5) Health‑check
+// 5) Health‑check para verificar que el server está vivo
 app.get('/', (_req, res) => {
   res.send('API viva ✔️');
 });
 
-// 6) Arranque del servidor (Render usa process.env.PORT)
+// 6) Arranque del servidor (Render proporciona process.env.PORT)
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🌐 Servidor escuchando en el puerto ${PORT}`);
