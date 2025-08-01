@@ -17,8 +17,14 @@ mongoose.connect(MONGO_URI, {
 
 // 2) Middlewares
 app.use(cors({
-  origin: 'http://localhost:5173'   // ajusta si tu front corre en otro puerto
+  origin: [
+    'http://localhost:5173',    // tu React en dev
+    'https://b2b.occ.com.mx'    // tu dominio de producción
+  ],
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','x-api-key']
 }));
+app.options('*', cors());
 app.use(express.json());
 
 // 3) Rutas
