@@ -17,7 +17,7 @@ router.get('/all', async (_req, res) => {
   }
 });
 
-const validButtons = ['cotizar', 'publicar', 'oportunidades'];
+const validButtons = ['cotizar', 'publicar', 'empleo'];
 
 router.post('/', async (req, res) => {
   console.log('📬 LLEGÓ UN POST:', req.body);
@@ -41,7 +41,7 @@ router.post('/', async (req, res) => {
     await doc.save();
   } else {
     // Primera interacción: guardamos metadata + contador inicial
-    const initial = { cotizar: 0, publicar: 0, oportunidades: 0 };
+    const initial = { cotizar: 0, publicar: 0, empleo: 0 };
     initial[button] = 1;
 
     doc = new Response({
