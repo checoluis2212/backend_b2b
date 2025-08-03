@@ -10,7 +10,6 @@ router.get('/', (_req, res) => res.send('✅ El router /api/responses funciona p
 router.get('/all', async (_req, res) => {
   try {
     const list = await Response.find().sort({ createdAt: -1 });
-    console.log(`📦 Respuestas encontradas: ${list.length}`);
     return res.json(list);
   } catch (err) {
     console.error('❌ Error al listar respuestas:', err);
@@ -26,24 +25,25 @@ router.post('/', async (req, res) => {
 
   // Validación
   if (!visitorId || !validButtons.includes(button)) {
-    console.warn('⚠️ Datos inválidos recibidos');
+    console.warn('⚠️ Datos inválidos:', { visitorId, button });
     return res.status(400).json({ success: false, error: 'visitorId y button válidos son obligatorios' });
   }
 
-  // Extraer IP y referer
-  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.connection.remoteAddress || '';
-  const referer = req.get('Referer') || '';
-
   try {
+    // Extraer IP y referer
+    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.connection.remoteAddress || '';
+    const referer = req.get('Referer') || '';
+
     // Buscar doc existente
     let doc = await Response.findOne({ visitorId });
 
     if (doc) {
-      console.log(`♻️ Actualizando contador para ${visitorId}`);
+      // Ya existe: solo incrementamos contador
       doc.buttonCounts[button] = (doc.buttonCounts[button] || 0) + 1;
       await doc.save();
+      console.log(`✅ Actualizado documento existente para ${visitorId}`);
     } else {
-      console.log(`🆕 Creando nuevo registro para ${visitorId}`);
+      // Primera interacción: guardamos metadata + contador inicial
       const initial = { cotizar: 0, publicar: 0, empleo: 0 };
       initial[button] = 1;
 
@@ -57,9 +57,8 @@ router.post('/', async (req, res) => {
         }
       });
       await doc.save();
+      console.log(`✅ Nuevo documento guardado para ${visitorId}`);
     }
-
-    console.log('✅ Guardado en MongoDB:', doc);
 
     return res.json({
       success: true,
@@ -69,7 +68,7 @@ router.post('/', async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Error guardando en MongoDB:', err);
-    return res.status(500).json({ success: false, error: 'Error guardando en la base de datos' });
+    return res.status(500).json({ success: false, error: 'Error interno en el servidor' });
   }
 });
 
