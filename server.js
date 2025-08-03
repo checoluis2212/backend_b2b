@@ -28,7 +28,6 @@ app.options('*', cors());
 app.use(express.json());
 
 // ─── 3) API KEY PROTECCIÓN ──────────────────────────────────────────
-// ✅ Esto bloquea TODAS las rutas que vienen después
 app.use((req, res, next) => {
   const apiKey = req.headers['x-api-key'];
   if (apiKey !== process.env.API_KEY) {
@@ -38,7 +37,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 🔹 Endpoint de prueba de API Key
+// 🔹 3.1 Endpoint de prueba de API Key
 app.get('/api/test-key', (req, res) => {
   res.json({ ok: true, msg: 'API Key válida' });
 });
@@ -67,3 +66,4 @@ app.get('/', (_req, res) => res.send('API viva ✔️'));
 // ─── 7) Levantar servidor ───────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🌐 Servidor escuchando en puerto ${PORT}`));
+
