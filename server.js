@@ -3,9 +3,8 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-// Rutas
+// Rutas OCC B2B
 import responsesRouter from './routes/responses.js';
-import estudiosRouter from './routes/estudios.js';
 
 dotenv.config();
 const app = express();
@@ -20,8 +19,6 @@ app.use(cors({
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization','x-api-key']
 }));
-
-// Preflight para OPTIONS
 app.options('*', cors());
 
 // ─── 2) Middleware JSON ─────────────────────────────────────────────
@@ -39,7 +36,7 @@ app.use((req, res, next) => {
 
 // 🔹 3.1 Endpoint de prueba de API Key
 app.get('/api/test-key', (req, res) => {
-  res.json({ ok: true, msg: 'API Key válida' });
+  res.json({ ok: true, msg: 'API Key válida', keyUsada: req.headers['x-api-key'] || null });
 });
 
 // ─── 4) Conexión a MongoDB ──────────────────────────────────────────
@@ -48,7 +45,6 @@ if (!MONGO_URI) {
   console.error('❌ Falta la variable MONGO_URI');
   process.exit(1);
 }
-
 mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB conectado'))
   .catch(err => {
@@ -56,14 +52,12 @@ mongoose.connect(MONGO_URI)
     process.exit(1);
   });
 
-// ─── 5) Rutas protegidas ────────────────────────────────────────────
+// ─── 5) Rutas OCC B2B ───────────────────────────────────────────────
 app.use('/api/responses', responsesRouter);
-app.use('/api/estudios', estudiosRouter);
 
 // ─── 6) Health Check (no protegido) ─────────────────────────────────
 app.get('/', (_req, res) => res.send('API viva ✔️'));
 
 // ─── 7) Levantar servidor ───────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🌐 Servidor escuchando en puerto ${PORT}`));
-
+app.listen(PORT, () => console.log(`🌐 Servidor OCC B2B escuchando en puerto ${PORT}`));
