@@ -28,6 +28,7 @@ app.options('*', cors());
 app.use(express.json());
 
 // ─── 3) API KEY PROTECCIÓN ──────────────────────────────────────────
+// ✅ Esto bloquea TODAS las rutas que vienen después
 app.use((req, res, next) => {
   const apiKey = req.headers['x-api-key'];
   if (apiKey !== process.env.API_KEY) {
@@ -35,6 +36,11 @@ app.use((req, res, next) => {
     return res.status(403).json({ error: 'Acceso denegado' });
   }
   next();
+});
+
+// 🔹 Endpoint de prueba de API Key
+app.get('/api/test-key', (req, res) => {
+  res.json({ ok: true, msg: 'API Key válida' });
 });
 
 // ─── 4) Conexión a MongoDB ──────────────────────────────────────────
@@ -51,13 +57,13 @@ mongoose.connect(MONGO_URI)
     process.exit(1);
   });
 
-// ─── 5) Rutas ───────────────────────────────────────────────────────
+// ─── 5) Rutas protegidas ────────────────────────────────────────────
 app.use('/api/responses', responsesRouter);
 app.use('/api/estudios', estudiosRouter);
 
-// Health Check
+// ─── 6) Health Check (no protegido) ─────────────────────────────────
 app.get('/', (_req, res) => res.send('API viva ✔️'));
 
-// ─── 6) Levantar servidor ───────────────────────────────────────────
+// ─── 7) Levantar servidor ───────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🌐 Servidor escuchando en puerto ${PORT}`));
