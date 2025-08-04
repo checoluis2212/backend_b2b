@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.post('/', async (req, res) => {
   try {
-    const { visitorId, button } = req.body;
+    const { visitorId, button, utm_source, utm_medium, utm_campaign } = req.body;
 
     if (!visitorId || !button) {
       return res.status(400).json({ error: 'visitorId y button son requeridos' });
@@ -18,6 +18,13 @@ router.post('/', async (req, res) => {
       response = new Response({ visitorId });
     }
 
+    // 🔹 Guardar UTM si llegan en el request
+    response.metadata.utmParams = {
+      source: utm_source || response.metadata?.utmParams?.source || '(not set)',
+      medium: utm_medium || response.metadata?.utmParams?.medium || '(not set)',
+      campaign: utm_campaign || response.metadata?.utmParams?.campaign || '(not set)'
+    };
+
     // Incrementar contador de botón
     if (button === 'cotizar') response.buttonCounts.cotizar++;
     if (button === 'publicar') response.buttonCounts.publicar++;
@@ -25,11 +32,8 @@ router.post('/', async (req, res) => {
 
     await response.save();
 
-    // 🔹 UTM params
-    const utmParams = response.metadata?.utmParams || {};
-
-    // 🔹 Enviar evento a GA4 con UTM
-    await sendGA4Event(visitorId, `click_${button}`, utmParams);
+    // 🔹 Enviar evento a GA4 con UTM actualizadas
+    await sendGA4Event(visitorId, `click_${button}`, response.metadata.utmParams);
 
     res.json({ ok: true, message: `Botón ${button} registrado y enviado a GA4` });
   } catch (error) {
