@@ -25,8 +25,11 @@ router.post('/', async (req, res) => {
 
     await response.save();
 
-    // 🔹 Enviar evento a GA4
-    await sendGA4Event(visitorId, `click_${button}`);
+    // 🔹 UTM params
+    const utmParams = response.metadata?.utmParams || {};
+
+    // 🔹 Enviar evento a GA4 con UTM
+    await sendGA4Event(visitorId, `click_${button}`, utmParams);
 
     res.json({ ok: true, message: `Botón ${button} registrado y enviado a GA4` });
   } catch (error) {
