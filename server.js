@@ -5,13 +5,22 @@ import cors from 'cors';
 
 // Rutas OCC B2B
 import responsesRouter from './routes/responses.js';
-import { sendGA4Event } from './utils/ga4.js'; // ✅ Import para GA4 test
+import { sendGA4Event } from './utils/ga4.js';
 
 const app = express();
 
 // 🔹 Configuración CORS global
 app.use(cors({ origin: '*' }));
 app.use(express.json());
+
+// 🔹 Middleware de autenticación por API Key
+function checkApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey !== process.env.API_KEY) {
+    return res.status(403).json({ ok: false, message: 'Acceso no autorizado' });
+  }
+  next();
+}
 
 // 🔹 Conexión a MongoDB
 const MONGO_URI = process.env.MONGO_URI;
@@ -23,11 +32,11 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB conectado'))
   .catch(err => { console.error('❌ Error MongoDB:', err); process.exit(1); });
 
-// 🔹 Rutas OCC
-app.use('/api/responses', responsesRouter);
+// 🔹 Rutas OCC protegidas con API Key
+app.use('/api/responses', checkApiKey, responsesRouter);
 
-// 🔹 Endpoint de prueba para GA4
-app.get('/api/test-ga4', async (req, res) => {
+// 🔹 Endpoint de prueba para GA4 protegido con API Key
+app.get('/api/test-ga4', checkApiKey, async (req, res) => {
   try {
     await sendGA4Event('test-visitor-123', 'click_test', {
       source: 'facebook',
@@ -41,7 +50,7 @@ app.get('/api/test-ga4', async (req, res) => {
   }
 });
 
-// 🔹 Health‑check
+// 🔹 Health-check
 app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
 
 // 🔹 Levantar servidor
