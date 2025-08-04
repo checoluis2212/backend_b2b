@@ -12,9 +12,11 @@ const app = express();
 // ─── 1) CORS ESTRICTO ───────────────────────────────────────────────
 app.use(cors({
   origin: [
-    'https://empresas.occ.com.mx',              // Producción OCC Empresas
-    'https://frontend-occ-clientes.onrender.com', // Frontend en Render
-    'http://localhost:5173'                     // Desarrollo local
+    'https://empresas.occ.com.mx',                // Producción OCC Empresas
+    'https://frontend-occ-clientes.onrender.com', // Frontend Render viejo
+    'https://frontend-b2b-uopo.onrender.com',     // Frontend Render nuevo
+    'https://b2b.occ.com.mx',                     // Custom domain OCC B2B
+    'http://localhost:5173'                       // Desarrollo local
   ],
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization','x-api-key']
