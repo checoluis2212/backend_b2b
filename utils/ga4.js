@@ -7,8 +7,8 @@ const GA4_URL = `https://www.google-analytics.com/mp/collect?measurement_id=${ME
 export async function sendGA4Event(visitorId, eventName, utmParams = {}) {
   try {
     const payload = {
-      client_id: visitorId,   // 🔹 Identificador de sesión en GA4
-      user_id: visitorId,     // 🔹 Identificador de usuario (igual al visitorId)
+      client_id: visitorId,
+      user_id: visitorId,
       events: [
         {
           name: eventName,
@@ -17,14 +17,18 @@ export async function sendGA4Event(visitorId, eventName, utmParams = {}) {
             utm_source: utmParams.source || '(not set)',
             utm_medium: utmParams.medium || '(not set)',
             utm_campaign: utmParams.campaign || '(not set)',
-            variant_id: visitorId // 🔹 Para usar en dimensión personalizada
+            variant_id: visitorId
           }
         }
       ]
     };
 
     await axios.post(GA4_URL, payload);
-    console.log(`✅ Evento ${eventName} enviado a GA4 con visitorId ${visitorId}`);
+
+    // 🔹 Log seguro (solo en desarrollo, visitorId parcial)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`✅ Evento ${eventName} enviado a GA4 con visitorId ****${visitorId.slice(-4)}`);
+    }
   } catch (error) {
     console.error(`❌ Error enviando evento ${eventName}:`, error.message);
   }
