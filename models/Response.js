@@ -16,7 +16,7 @@ const responseSchema = new mongoose.Schema({
     empleo:        { type: Number, default: 0 },
   },
   metadata: {
-    ip:        String,         // 👈 Campo IP
+    ip:        String,         
     referer:   String,
     utmParams: utmSchema,
   }
