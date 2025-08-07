@@ -41,7 +41,12 @@ router.post('/', async (req, res) => {
     // GA4
     await sendGA4Event(visitorId, `click_${button}`, response.metadata.utmParams);
 
-    return res.json({ ok: true });
+    // Respuesta detallada
+    return res.json({
+      ok:      true,
+      message: `Botón ${button} registrado correctamente`,
+      data:    response
+    });
   } catch (err) {
     console.error('❌ Error registrando botón:', err);
     return res.status(500).json({ error: 'Error interno' });
@@ -80,7 +85,12 @@ router.post('/contact', async (req, res) => {
       form: 'Lead_Form'
     });
 
-    return res.json({ ok: true });
+    // Respuesta detallada
+    return res.json({
+      ok:      true,
+      message: 'Formulario registrado correctamente',
+      data:    response
+    });
   } catch (err) {
     console.error('❌ Error registrando formulario:', err);
     return res.status(500).json({ error: 'Error interno' });
