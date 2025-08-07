@@ -5,12 +5,17 @@ import cors from 'cors';
 
 // Rutas OCC B2B
 import responsesRouter from './routes/responses.js';
-import { sendGA4Event } from './utils/ga4.js';
 
 const app = express();
 
-// 🔹 Configuración CORS global
-app.use(cors({ origin: '*' }));
+// 🔹 Configuración CORS
+app.use(cors({
+  origin: [
+    'https://b2b.occ.com.mx',
+    'https://reclutamiento.occ.com.mx'
+  ]
+}));
+
 app.use(express.json());
 
 // 🔹 Middleware de autenticación por API Key
@@ -23,36 +28,26 @@ function checkApiKey(req, res, next) {
 }
 
 // 🔹 Conexión a MongoDB
-const MONGO_URI = process.env.MONGO_URI;
-if (!MONGO_URI) {
-  console.error('❌ Falta la variable MONGO_URI');
+if (!process.env.MONGO_URI) {
+  console.error('❌ Falta MONGO_URI');
   process.exit(1);
 }
-mongoose.connect(MONGO_URI)
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
   .then(() => console.log('✅ MongoDB conectado'))
-  .catch(err => { console.error('❌ Error MongoDB:', err); process.exit(1); });
+  .catch(err => {
+    console.error('❌ Error MongoDB:', err);
+    process.exit(1);
+  });
 
-// 🔹 Rutas OCC protegidas con API Key
+// 🔹 Montaje de rutas protegidas
 app.use('/api/responses', checkApiKey, responsesRouter);
-
-// 🔹 Endpoint de prueba para GA4 protegido con API Key
-app.get('/api/test-ga4', checkApiKey, async (req, res) => {
-  try {
-    await sendGA4Event('test-visitor-123', 'click_test', {
-      source: 'facebook',
-      medium: 'cpc',
-      campaign: 'b2b-cta'
-    });
-    res.json({ ok: true, message: 'Evento de prueba enviado a GA4' });
-  } catch (error) {
-    console.error('❌ Error test GA4:', error.message);
-    res.status(500).json({ ok: false, error: error.message });
-  }
-});
 
 // 🔹 Health-check
 app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
 
 // 🔹 Levantar servidor
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🌐 Servidor OCC B2B escuchando en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🌐 Servidor escuchando en puerto ${PORT}`));
