@@ -14,7 +14,7 @@ app.get('/form-sender.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.send(`
 (function(){
-  // La clave se inyecta con JSON.stringify para escapar comillas automáticamente
+  // Inyectamos la clave escapada para no romper la cadena
   var API_KEY = ${JSON.stringify(apiKey)};
   window.initHubspotForm = function(portalId, formId, targetSelector){
     function renderForm(){
@@ -28,7 +28,7 @@ app.get('/form-sender.js', (req, res) => {
           $form.serializeArray().forEach(function(f){
             data[f.name] = f.value;
           });
-          // Si quieres incluir visitorId del fingerprint:
+          // Incluimos el visitorId si lo guardaste en localStorage
           data.visitorId = localStorage.getItem('visitorId') || '';
           fetch('https://backend-b2b-a3up.onrender.com/api/responses/contact', {
             method: 'POST',
@@ -43,7 +43,6 @@ app.get('/form-sender.js', (req, res) => {
         }
       });
     }
-    // Si la librería de HS Forms no está cargada, la inyectamos
     if (!window.hbspt) {
       var s = document.createElement('script');
       s.src = 'https://js.hsforms.net/forms/v2.js';
@@ -58,7 +57,7 @@ app.get('/form-sender.js', (req, res) => {
 });
 // ──────────────────────────────────────────────────────────────────────────────
 
-// 1) CORS: permite sólo tus dominios de frontend
+// 1) CORS: sólo tus dominios de frontend
 app.use(cors({
   origin: [
     'https://b2b.occ.com.mx',
@@ -69,7 +68,7 @@ app.use(cors({
 // 2) Parse JSON bodies
 app.use(express.json());
 
-// 3) Middleware de API Key para /api/responses/*
+// 3) Middleware de API Key para /api/responses
 function checkApiKey(req, res, next) {
   const apiKey = req.headers['x-api-key'];
   if (apiKey !== process.env.API_KEY) {
