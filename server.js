@@ -1,4 +1,4 @@
-// server.js
+
 import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -6,18 +6,12 @@ import cors from 'cors';
 
 // Rutas OCC B2B
 import responsesRouter from './routes/responses.js';
-import hubspotWebhookRouter from './routes/hubspotWebhook.js';
 import { sendGA4Event } from './utils/ga4.js';
-
-// Job de polling de HubSpot
-import { startHubspotPolling } from './jobs/pollHubspot.js';
 
 const app = express();
 
 // 🔹 Configuración CORS global
 app.use(cors({ origin: '*' }));
-
-// 🔹 Parseo JSON
 app.use(express.json());
 
 // 🔹 Middleware de autenticación por API Key
@@ -42,9 +36,6 @@ mongoose.connect(MONGO_URI)
 // 🔹 Rutas OCC protegidas con API Key
 app.use('/api/responses', checkApiKey, responsesRouter);
 
-// 🔹 Endpoint de webhook de HubSpot (no protegido con API Key)
-app.use('/api/hubspot/webhook', hubspotWebhookRouter);
-
 // 🔹 Endpoint de prueba para GA4 protegido con API Key
 app.get('/api/test-ga4', checkApiKey, async (req, res) => {
   try {
@@ -62,9 +53,6 @@ app.get('/api/test-ga4', checkApiKey, async (req, res) => {
 
 // 🔹 Health-check
 app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
-
-// 🔹 Iniciar polling de HubSpot cada 5 minutos
-startHubspotPolling();
 
 // 🔹 Levantar servidor
 const PORT = process.env.PORT || 3001;
