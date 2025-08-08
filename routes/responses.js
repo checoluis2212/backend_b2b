@@ -1,99 +1,82 @@
 import express from 'express';
 import Response from '../models/Response.js';
-import { sendGA4Event } from '../utils/ga4.js';
-import { upsertHubspotContact } from '../utils/hubspot.js';
+import { upsertHubspotContact } from '../services/hubspot.js';
+import { sendGA4Event } from '../utils/ga.js';
 
 const router = express.Router();
 
 /**
- * 1) Clicks de botones
- */
-router.post('/', async (req, res) => {
-  try {
-    const { visitorId, button, utm_source, utm_medium, utm_campaign } = req.body;
-    if (!visitorId || !button) {
-      return res.status(400).json({ error: 'visitorId y button son requeridos' });
-    }
-
-    let response = await Response.findOne({ visitorId });
-    if (!response) response = new Response({ visitorId });
-
-    // IP
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-             || req.ip
-             || req.socket.remoteAddress;
-    response.metadata.ip = ip;
-
-    // UTM
-    response.metadata.utmParams = {
-      source:   utm_source   || response.metadata?.utmParams?.source   || '(not set)',
-      medium:   utm_medium   || response.metadata?.utmParams?.medium   || '(not set)',
-      campaign: utm_campaign || response.metadata?.utmParams?.campaign || '(not set)'
-    };
-
-    // Contadores
-    if (button === 'cotizar')  response.buttonCounts.cotizar++;
-    if (button === 'publicar') response.buttonCounts.publicar++;
-    if (button === 'empleo')   response.buttonCounts.empleo++;
-
-    await response.save();
-
-    // GA4
-    await sendGA4Event(visitorId, `click_${button}`, response.metadata.utmParams);
-
-    // Respuesta detallada
-    return res.json({
-      ok:      true,
-      message: `Botón ${button} registrado correctamente`,
-      data:    response
-    });
-  } catch (err) {
-    console.error('❌ Error registrando botón:', err);
-    return res.status(500).json({ error: 'Error interno' });
-  }
-});
-
-/**
- * 2) Envíos de formulario
+ * POST /api/responses/contact
+ * Recibe datos de un formulario y los guarda/enlaza en Mongo, HubSpot y GA4
  */
 router.post('/contact', async (req, res) => {
   try {
-    const { visitorId, name, email, ...rest } = req.body;
+    // 1) Desestructurar los campos esperados del body
+    const {
+      visitorId,
+      nombre,
+      apellido,
+      email,
+      telefono,
+      company,
+      jobtitle,
+      vacantes_anuales,
+      rfc
+    } = req.body;
+
+    // 2) Validar los campos mínimos
     if (!visitorId || !email) {
       return res.status(400).json({ error: 'visitorId y email son requeridos' });
     }
 
+    // 3) Buscar o crear el documento Response en Mongo
     let response = await Response.findOne({ visitorId });
-    if (!response) response = new Response({ visitorId });
-
-    // Guardar contacto
-    response.contacts.push({ name, email, payload: rest });
-    response.submissionCount++;
-
-    await response.save();
-
-    // HubSpot
-    try {
-      await upsertHubspotContact(email, visitorId, { firstname: name });
-    } catch (hsErr) {
-      console.error('⚠️ HubSpot upsert failed:', hsErr.response?.data || hsErr.message);
+    if (!response) {
+      response = new Response({ visitorId });
     }
 
-    // GA4
-    await sendGA4Event(visitorId, 'form_submit', {
-      ...response.metadata.utmParams,
-      form: 'Lead_Form'
+    // 4) Actualizar contador y timestamps
+    const now = new Date();
+    response.submissionCount = (response.submissionCount || 0) + 1;
+    if (!response.firstSubmission) {
+      response.firstSubmission = now;
+    }
+    response.lastSubmission = now;
+
+    // 5) Guardar registro de contacto dentro del documento
+    response.contacts.push({
+      name:          nombre,
+      email,
+      phone:         telefono,
+      company,
+      jobtitle,
+      vacantes:      parseInt(vacantes_anuales, 10) || 0,
+      rfc,
+      payload:       { ...req.body }
     });
 
-    // Respuesta detallada
-    return res.json({
-      ok:      true,
-      message: 'Formulario registrado correctamente',
-      data:    response
-    });
+    // 6) Persistir cambios en MongoDB
+    await response.save();
+
+    // 7) Sincronizar/Upsert en HubSpot (ignorar errores)
+    try {
+      await upsertHubspotContact(email, visitorId, { firstname: nombre, lastname: apellido });
+    } catch (err) {
+      console.error('⚠️ HubSpot upsert failed:', err?.response?.data || err.message);
+    }
+
+    // 8) Enviar evento a GA4 vía Measurement Protocol
+    try {
+      await sendGA4Event(visitorId, 'form_submit', response.metadata.utmParams);
+    } catch (err) {
+      console.error('❌ Error enviando evento GA4:', err.message);
+    }
+
+    // 9) Responder al cliente
+    return res.json({ ok: true, data: response });
   } catch (err) {
     console.error('❌ Error registrando formulario:', err);
-    return res.status(500).json({ error: 'Error interno' });
+    return res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
