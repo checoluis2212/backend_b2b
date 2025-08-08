@@ -1,4 +1,3 @@
-// models/Response.js
 import mongoose from 'mongoose';
 
 const utmSchema = new mongoose.Schema({
@@ -29,7 +28,7 @@ const responseSchema = new mongoose.Schema({
     publicar: { type: Number, default: 0 },
     empleo:   { type: Number, default: 0 },
   },
-  metadata:         {
+  metadata: {
     ip:        String,
     referer:   String,
     utmParams: utmSchema,
