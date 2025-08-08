@@ -2,9 +2,7 @@
 import axios from 'axios';
 
 const HS_TOKEN = process.env.HUBSPOT_TOKEN;
-if (!HS_TOKEN) {
-  throw new Error('❌ Falta HUBSPOT_TOKEN');
-}
+if (!HS_TOKEN) throw new Error('❌ Falta HUBSPOT_TOKEN');
 
 /**
  * Busca en HubSpot un contacto por email y devuelve sus properties
@@ -12,9 +10,7 @@ if (!HS_TOKEN) {
 export async function findContactByEmail(email) {
   const url = 'https://api.hubapi.com/crm/v3/objects/contacts/search';
   const body = {
-    filterGroups: [
-      { filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }
-    ],
+    filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }],
     properties: ['firstname','lastname','email','phone','company','jobtitle','createdate'],
     limit: 1
   };
@@ -24,8 +20,7 @@ export async function findContactByEmail(email) {
       'Authorization': `Bearer ${HS_TOKEN}`
     }
   });
-  const results = res.data.results;
-  return results && results.length ? results[0] : null;
+  return res.data.results?.[0] || null;
 }
 
 /**
@@ -46,22 +41,31 @@ export async function createContact(properties) {
  * Busca o crea un contacto en HubSpot, devuelve { id, properties }
  */
 export async function upsertContactByEmail(fieldsObj) {
-  const email = fieldsObj.email;
-  // 1) Intenta buscar
-  const existing = await findContactByEmail(email);
-
+  const existing = await findContactByEmail(fieldsObj.email);
   if (existing) {
-    // Si existe, devolvemos su id y properties
-    return {
-      id: existing.id,
-      properties: existing.properties
-    };
+    return { id: existing.id, properties: existing.properties };
   } else {
-    // Si no existe, lo creamos
     const created = await createContact(fieldsObj);
-    return {
-      id: created.id,
-      properties: created.properties
-    };
+    return { id: created.id, properties: created.properties };
   }
+}
+
+/**
+ * Obtiene un contacto completo de HubSpot por su ID, incluyendo el GUID del form
+ */
+export async function getContactById(hubspotId) {
+  const url = `https://api.hubapi.com/crm/v3/objects/contacts/${hubspotId}`;
+  const res = await axios.get(url, {
+    headers: { 
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${HS_TOKEN}` 
+    },
+    params: {
+      properties: [
+        'firstname','lastname','email','phone','company','jobtitle',
+        'createdate','hs_analytics_source_data_2'
+      ].join(',')
+    }
+  });
+  return res.data;
 }
