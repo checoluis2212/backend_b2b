@@ -1,17 +1,16 @@
+// File: routes/responses.js
 import express from 'express';
 import Response from '../models/Response.js';
 import { upsertHubspotContact } from '../services/hubspot.js';
-import { sendGA4Event } from '../utils/ga.js';
 
 const router = express.Router();
 
 /**
  * POST /api/responses/contact
- * Recibe datos de un formulario y los guarda/enlaza en Mongo, HubSpot y GA4
+ * Guarda los datos del form en Mongo y sincroniza a HubSpot
  */
 router.post('/contact', async (req, res) => {
   try {
-    // 1) Desestructurar los campos esperados del body
     const {
       visitorId,
       nombre,
@@ -24,18 +23,17 @@ router.post('/contact', async (req, res) => {
       rfc
     } = req.body;
 
-    // 2) Validar los campos mínimos
     if (!visitorId || !email) {
       return res.status(400).json({ error: 'visitorId y email son requeridos' });
     }
 
-    // 3) Buscar o crear el documento Response en Mongo
+    // Buscar o crear documento
     let response = await Response.findOne({ visitorId });
     if (!response) {
       response = new Response({ visitorId });
     }
 
-    // 4) Actualizar contador y timestamps
+    // Actualizar contador y timestamps
     const now = new Date();
     response.submissionCount = (response.submissionCount || 0) + 1;
     if (!response.firstSubmission) {
@@ -43,36 +41,31 @@ router.post('/contact', async (req, res) => {
     }
     response.lastSubmission = now;
 
-    // 5) Guardar registro de contacto dentro del documento
+    // Agregar registro de contacto
     response.contacts.push({
-      name:          nombre,
+      name:     nombre,
       email,
-      phone:         telefono,
+      phone:    telefono,
       company,
       jobtitle,
-      vacantes:      parseInt(vacantes_anuales, 10) || 0,
+      vacantes: parseInt(vacantes_anuales, 10) || 0,
       rfc,
-      payload:       { ...req.body }
+      payload:  { ...req.body }
     });
 
-    // 6) Persistir cambios en MongoDB
+    // Guardar en Mongo
     await response.save();
 
-    // 7) Sincronizar/Upsert en HubSpot (ignorar errores)
+    // Upsert en HubSpot (ignora fallos)
     try {
-      await upsertHubspotContact(email, visitorId, { firstname: nombre, lastname: apellido });
+      await upsertHubspotContact(email, visitorId, {
+        firstname: nombre,
+        lastname:  apellido
+      });
     } catch (err) {
       console.error('⚠️ HubSpot upsert failed:', err?.response?.data || err.message);
     }
 
-    // 8) Enviar evento a GA4 vía Measurement Protocol
-    try {
-      await sendGA4Event(visitorId, 'form_submit', response.metadata.utmParams);
-    } catch (err) {
-      console.error('❌ Error enviando evento GA4:', err.message);
-    }
-
-    // 9) Responder al cliente
     return res.json({ ok: true, data: response });
   } catch (err) {
     console.error('❌ Error registrando formulario:', err);
