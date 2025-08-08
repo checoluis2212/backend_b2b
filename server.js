@@ -6,7 +6,7 @@ import cors from 'cors';
 
 // Rutas OCC B2B
 import responsesRouter from './routes/responses.js';
-import hubspotSubmissionsRouter from './routes/hubspotSubmissions.js';
+import hubspotWebhookRouter   from './routes/hubspotWebhook.js';
 import { sendGA4Event } from './utils/ga4.js';
 
 const app = express();
@@ -36,7 +36,7 @@ mongoose.connect(MONGO_URI)
 
 // 🔹 Rutas OCC protegidas con API Key
 app.use('/api/responses',            checkApiKey, responsesRouter);
-app.use('/api/hubspot-submissions',  checkApiKey, hubspotSubmissionsRouter);
+app.use('/api/hubspot-webhook', express.json(), hubspotWebhookRouter);
 
 // 🔹 Endpoint de prueba para GA4 protegido con API Key
 app.get('/api/test-ga4', checkApiKey, async (req, res) => {
