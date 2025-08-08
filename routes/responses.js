@@ -1,75 +1,83 @@
-// routes/responses.js
+// File: routes/responses.js
 import express from 'express';
 import Response from '../models/Response.js';
-import { findContactByEmail } from '../services/hubspot.js';
+import { upsertHubspotContact } from '../services/hubspot.js';
 
 const router = express.Router();
 
+/**
+ * POST /api/responses/contact
+ * Recibe datos de un formulario y los guarda/enlaza en Mongo y HubSpot
+ */
 router.post('/contact', async (req, res) => {
   try {
     const {
       visitorId,
-      nombre, apellido, email, telefono,
-      company, jobtitle, vacantes_anuales, rfc
-    } = req.body;
-
-    // 1) Upsert de la sumisión en Response
-    const now = new Date();
-    const resp = await Response.findOneAndUpdate(
-      { visitorId },
-      {
-        $inc:  { submissionCount: 1 },
-        $setOnInsert: { firstSubmission: now, metadata: {
-          ip: req.ip,
-          referer: req.get('Referer') || '',
-          utmParams: {
-            source: req.body.utm_source,
-            medium: req.body.utm_medium,
-            campaign: req.body.utm_campaign
-          }
-        }},
-        $set: { lastSubmission: now }
-      },
-      { new: true, upsert: true }
-    );
-
-    // 2) Mete el formulario en el sub‐array contacts
-    const contactPayload = {
-      name: `${nombre} ${apellido}`,
+      nombre,
+      apellido,
       email,
-      phone: telefono,
+      telefono,
       company,
       jobtitle,
-      vacantes: vacantes_anuales,
-      rfc,
-      payload: req.body
-    };
-    resp.contacts.push(contactPayload);
+      vacantes_anuales,
+      rfc
+    } = req.body;
 
-    // 3) Llama a HubSpot para traer datos enriquecidos
-    const hsContact = await findContactByEmail(email);
-    if (hsContact) {
-      // Mapea las propiedades de HubSpot
-      const p = hsContact.properties;
-      resp.contacts.push({
-        name:    `${p.firstname} ${p.lastname}`,
-        email:    p.email,
-        phone:    p.phone,
-        company:  p.company,
-        jobtitle: p.jobtitle,
-        payload:  hsContact,
-        fromForm: true
-      });
+    if (!visitorId || !email) {
+      return res.status(400).json({ error: 'visitorId y email son requeridos' });
     }
 
-    // 4) Guarda el documento actualizado
-    await resp.save();
+    let response = await Response.findOne({ visitorId });
+    if (!response) {
+      response = new Response({ visitorId });
+    }
 
-    return res.json({ ok: true, data: resp });
+    // Update submission count and timestamps
+    const now = new Date();
+    response.submissionCount = (response.submissionCount || 0) + 1;
+    if (!response.firstSubmission) {
+      response.firstSubmission = now;
+    }
+    response.lastSubmission = now;
+
+    // Save contact payload
+    response.contacts.push({
+      name:      nombre,
+      email,
+      phone:     telefono,
+      company,
+      jobtitle,
+      vacantes:  parseInt(vacantes_anuales, 10) || 0,
+      rfc,
+      payload:   { ...req.body }
+    });
+
+    await response.save();
+
+    // Upsert in HubSpot
+    try {
+      await upsertHubspotContact(email, visitorId, {
+        firstname: nombre,
+        lastname:  apellido
+      });
+    } catch (err) {
+      console.error('⚠️ HubSpot upsert failed:', err?.response?.data || err.message);
+    }
+
+    return res.json({ ok: true, data: response });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ ok: false, error: err.message });
+    console.error('❌ Error registrando formulario:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
 export default router;
+
+// --------------------------------------------------
+// File: services/hubspot.js
+import axios from 'axios';
+
+const HS_TOKEN = process.env.HUBSPOT_TOKEN;
+if (!HS_TOKEN) {
+  throw new Error('❌ Falta la variable HUBSPOT_TOKEN');
+}
