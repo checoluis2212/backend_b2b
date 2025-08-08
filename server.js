@@ -9,6 +9,9 @@ import responsesRouter from './routes/responses.js';
 import hubspotWebhookRouter from './routes/hubspotWebhook.js';
 import { sendGA4Event } from './utils/ga4.js';
 
+// Job de polling de HubSpot
+import { startHubspotPolling } from './jobs/pollHubspot.js';
+
 const app = express();
 
 // 🔹 Configuración CORS global
@@ -59,6 +62,9 @@ app.get('/api/test-ga4', checkApiKey, async (req, res) => {
 
 // 🔹 Health-check
 app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
+
+// 🔹 Iniciar polling de HubSpot cada 5 minutos
+startHubspotPolling();
 
 // 🔹 Levantar servidor
 const PORT = process.env.PORT || 3001;
