@@ -1,76 +1,56 @@
 // routes/hubspotWebhook.js
 import express from 'express';
-import crypto from 'crypto';
 import HubspotSubmission from '../models/HubspotSubmission.js';
 import Contact from '../models/Contact.js';
-import { upsertContactByEmail } from '../services/hubspot.js';
+import { getContactById } from '../services/hubspot.js';
+
+const FORM_GUID = '5f745bfa-8589-40c2-9940-f9081123e0b4';
 
 const router = express.Router();
 
-// Middlware para validar la firma de HubSpot (opcional pero recomendable)
-function verifyHubspotSignature(req, res, next) {
-  const secret = process.env.HUBSPOT_WEBHOOK_SECRET; 
-  const signature = req.headers['x-hubspot-signature'] || '';
-  const payload = JSON.stringify(req.body);
-  const hash = crypto
-    .createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex');
-
-  if (hash !== signature) {
-    return res.status(401).send('Invalid signature');
-  }
-  next();
-}
-
-// Usar express.json antes de montar la ruta
-// En server.js: app.use(express.json());
-
-router.post('/', /* verifyHubspotSignature, */ async (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    // HubSpot envía un array de eventos
-    const events = req.body; 
+    const events = Array.isArray(req.body) ? req.body : [req.body];
+
     for (const evt of events) {
-      if (evt.subscriptionType !== 'form_submission') continue;
+      if (evt.subscriptionType !== 'object.creation') continue;
 
-      const { portalId, formGuid: formId, submissions } = evt;
-      // submissions es un array de sumisiones; procesa cada una
-      for (const sub of submissions) {
-        const fieldsObj = {};
-        sub.values.forEach(f => { fieldsObj[f.name] = f.value; });
+      const hubspotId = evt.objectId;
+      // 1) Trae el contacto completo
+      const { properties } = await getContactById(hubspotId);
+      
+      // 2) Filtra sólo si vino de nuestro form
+      const formGuid = properties.hs_analytics_source_data_2;
+      if (formGuid !== FORM_GUID) continue;
 
-        // 1) Sincroniza contacto en HubSpot
-        const { id: hubspotId, properties } = await upsertContactByEmail(fieldsObj);
-
-        // 2) Actualiza Contact en Mongo (contador y fechas)
-        await Contact.findOneAndUpdate(
-          { hubspotId },
-          {
-            $set: {
-              properties,
-              syncedAt: new Date(),
-              lastSubmissionAt: new Date()
-            },
-            $setOnInsert: { firstSubmissionAt: new Date() },
-            $inc: { submissionCount: 1 }
+      // 3) Upsert en Contact (contador, fechas, properties)
+      await Contact.findOneAndUpdate(
+        { hubspotId },
+        {
+          $set: {
+            properties,
+            syncedAt: new Date(),
+            lastSubmissionAt: new Date()
           },
-          { upsert: true }
-        );
+          $setOnInsert: { firstSubmissionAt: new Date() },
+          $inc: { submissionCount: 1 }
+        },
+        { upsert: true, new: true }
+      );
 
-        // 3) Guarda la sumisión pura
-        await new HubspotSubmission({
-          portalId,
-          formId,
-          submittedAt: sub.submittedAt,
-          fields: fieldsObj
-        }).save();
-      }
+      // 4) Guarda la sumisión cruda
+      await new HubspotSubmission({
+        portalId: evt.portalId,
+        formId:   FORM_GUID,
+        submittedAt: evt.eventDate ? new Date(evt.eventDate) : new Date(),
+        fields: properties
+      }).save();
     }
 
-    res.status(200).send('OK');
+    return res.status(200).send('OK');
   } catch (err) {
-    console.error('❌ Error webhook HubSpot:', err);
-    res.status(500).send('Server error');
+    console.error('❌ Error en webhook CRM object.creation:', err);
+    return res.status(500).send('Server error');
   }
 });
 
