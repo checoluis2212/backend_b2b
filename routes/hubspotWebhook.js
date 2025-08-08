@@ -4,26 +4,25 @@ import HubspotSubmission from '../models/HubspotSubmission.js';
 import Contact from '../models/Contact.js';
 import { getContactById } from '../services/hubspot.js';
 
-const FORM_GUID = '5f745bfa-8589-40c2-9940-f9081123e0b4';
-
 const router = express.Router();
+const FORM_GUID = '5f745bfa-8589-40c2-9940-f9081123e0b4';
 
 router.post('/', async (req, res) => {
   try {
     const events = Array.isArray(req.body) ? req.body : [req.body];
 
     for (const evt of events) {
+      // Solo manejamos creación de contactos
       if (evt.subscriptionType !== 'object.creation') continue;
 
       const hubspotId = evt.objectId;
-      // 1) Trae el contacto completo
+      // 1) Trae del API de HubSpot todos los campos, incluido el GUID del form
       const { properties } = await getContactById(hubspotId);
-      
-      // 2) Filtra sólo si vino de nuestro form
-      const formGuid = properties.hs_analytics_source_data_2;
-      if (formGuid !== FORM_GUID) continue;
 
-      // 3) Upsert en Contact (contador, fechas, properties)
+      // 2) Filtra solo los contactos nacidos de TU formulario
+      if (properties.hs_analytics_source_data_2 !== FORM_GUID) continue;
+
+      // 3) Actualiza/crea en tu colección Contact
       await Contact.findOneAndUpdate(
         { hubspotId },
         {
@@ -38,18 +37,18 @@ router.post('/', async (req, res) => {
         { upsert: true, new: true }
       );
 
-      // 4) Guarda la sumisión cruda
+      // 4) Guarda un registro en HubspotSubmission
       await new HubspotSubmission({
-        portalId: evt.portalId,
-        formId:   FORM_GUID,
+        portalId:    evt.portalId,
+        formId:      FORM_GUID,
         submittedAt: evt.eventDate ? new Date(evt.eventDate) : new Date(),
-        fields: properties
+        fields:      properties
       }).save();
     }
 
     return res.status(200).send('OK');
   } catch (err) {
-    console.error('❌ Error en webhook CRM object.creation:', err);
+    console.error('❌ Error webhook CRM object.creation:', err);
     return res.status(500).send('Server error');
   }
 });
