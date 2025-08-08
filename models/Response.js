@@ -1,4 +1,4 @@
-// File: models/Response.js
+// models/Response.js
 import mongoose from 'mongoose';
 
 const utmSchema = new mongoose.Schema({
