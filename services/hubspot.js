@@ -1,29 +1,29 @@
-// services/hubspot.js
-import fetch from 'node-fetch';
-const HS_PORTAL_ID = process.env.HS_PORTAL_ID;
-const HS_FORM_ID   = process.env.HS_FORM_ID;
-const HS_TOKEN     = process.env.HUBSPOT_TOKEN;
+// File: services/hubspot.js
+import axios from 'axios';
 
-// Si quieres obtener el contacto por email (asumimos que mandas email en la sumisión):
+const HS_TOKEN = process.env.HUBSPOT_TOKEN;
+if (!HS_TOKEN) {
+  throw new Error('❌ Falta la variable HUBSPOT_TOKEN');
+}
+
+/**
+ * Busca en HubSpot un contacto por email y devuelve sus properties
+ */
 export async function findContactByEmail(email) {
-  const url = `https://api.hubapi.com/crm/v3/objects/contacts/search`;
+  const url = 'https://api.hubapi.com/crm/v3/objects/contacts/search';
   const body = {
     filterGroups: [
-      {
-        filters: [{ propertyName: 'email', operator: 'EQ', value: email }]
-      }
+      { filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }
     ],
     properties: ['firstname','lastname','email','phone','company','jobtitle','createdate'],
     limit: 1
   };
-  const res = await fetch(url, {
-    method: 'POST',
+  const res = await axios.post(url, body, {
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${HS_TOKEN}`
-    },
-    body: JSON.stringify(body)
+      'Authorization': `Bearer ${HS_TOKEN}`
+    }
   });
-  const json = await res.json();
-  return json.results && json.results[0];
+  const results = res.data.results;
+  return results && results.length ? results[0] : null;
 }
