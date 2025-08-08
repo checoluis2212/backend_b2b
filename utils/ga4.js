@@ -8,7 +8,6 @@ export async function sendGA4Event(visitorId, eventName, utmParams = {}) {
   try {
     const payload = {
       client_id: visitorId,
-      user_id: visitorId,
       events: [
         {
           name: eventName,
@@ -16,19 +15,14 @@ export async function sendGA4Event(visitorId, eventName, utmParams = {}) {
             event_timestamp: Date.now(),
             utm_source: utmParams.source || '(not set)',
             utm_medium: utmParams.medium || '(not set)',
-            utm_campaign: utmParams.campaign || '(not set)',
-            variant_id: visitorId
+            utm_campaign: utmParams.campaign || '(not set)'
           }
         }
       ]
     };
 
     await axios.post(GA4_URL, payload);
-
-    // 🔹 Log seguro (solo en desarrollo, visitorId parcial)
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`✅ Evento ${eventName} enviado a GA4 con visitorId ****${visitorId.slice(-4)}`);
-    }
+    console.log(`✅ Evento ${eventName} enviado a GA4 con ID ${visitorId}`);
   } catch (error) {
     console.error(`❌ Error enviando evento ${eventName}:`, error.message);
   }
