@@ -18,7 +18,8 @@ const contactSchema = new mongoose.Schema({
   vacantes:  Number,
   rfc:       String,
   payload:   mongoose.Schema.Types.Mixed,
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  fromForm:  { type: Boolean, default: false }
 }, { _id: false });
 
 const responseSchema = new mongoose.Schema({
