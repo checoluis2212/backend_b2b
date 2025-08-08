@@ -32,6 +32,8 @@ const responseSchema = new mongoose.Schema({
 
   contacts:       { type: [contactSchema], default: [] },
   submissionCount:{ type: Number, default: 0 }
+  firstSubmission: { type: Date },
+  lastSubmission:  { type: Date }
 
 }, { timestamps: true });
 
