@@ -7,57 +7,7 @@ import responsesRouter from './routes/responses.js';
 
 const app = express();
 
-// ──────────────────────────────────────────────────────────────────────────────
-// 0) Servir dinámicamente form-sender.js con la API key embebida y escape seguro
-app.get('/form-sender.js', (req, res) => {
-  const apiKey = process.env.API_KEY;
-  res.setHeader('Content-Type', 'application/javascript');
-  res.send(`
-(function(){
-  // Inyectamos la clave escapada para no romper la cadena
-  var API_KEY = ${JSON.stringify(apiKey)};
-  window.initHubspotForm = function(portalId, formId, targetSelector){
-    function renderForm(){
-      hbspt.forms.create({
-        region:   'na1',
-        portalId: portalId,
-        formId:   formId,
-        target:   targetSelector,
-        onFormSubmit: function($form){
-          var data = {};
-          $form.serializeArray().forEach(function(f){
-            data[f.name] = f.value;
-          });
-          // Incluimos el visitorId si lo guardaste en localStorage
-          data.visitorId = localStorage.getItem('visitorId') || '';
-          fetch('https://backend-b2b-a3up.onrender.com/api/responses/contact', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key':    API_KEY
-            },
-            body: JSON.stringify(data)
-          })
-          .then(function(res){ console.log('✅ B2B saved:', res.status); })
-          .catch(function(err){ console.error('❌ B2B error:', err); });
-        }
-      });
-    }
-    if (!window.hbspt) {
-      var s = document.createElement('script');
-      s.src = 'https://js.hsforms.net/forms/v2.js';
-      s.onload = renderForm;
-      document.head.appendChild(s);
-    } else {
-      renderForm();
-    }
-  };
-})();
-  `);
-});
-// ──────────────────────────────────────────────────────────────────────────────
-
-// 1) CORS: sólo tus dominios de frontend
+// CORS configuration
 app.use(cors({
   origin: [
     'https://b2b.occ.com.mx',
@@ -65,10 +15,9 @@ app.use(cors({
   ]
 }));
 
-// 2) Parse JSON bodies
 app.use(express.json());
 
-// 3) Middleware de API Key para /api/responses
+// API Key middleware
 function checkApiKey(req, res, next) {
   const apiKey = req.headers['x-api-key'];
   if (apiKey !== process.env.API_KEY) {
@@ -77,9 +26,9 @@ function checkApiKey(req, res, next) {
   next();
 }
 
-// 4) Conexión a MongoDB
+// MongoDB connection
 if (!process.env.MONGO_URI) {
-  console.error('❌ Falta la variable MONGO_URI');
+  console.error('❌ Falta MONGO_URI');
   process.exit(1);
 }
 mongoose.connect(process.env.MONGO_URI, {
@@ -92,12 +41,56 @@ mongoose.connect(process.env.MONGO_URI, {
   process.exit(1);
 });
 
-// 5) Montar rutas protegidas por API Key
+// Mount routes with API Key protection
 app.use('/api/responses', checkApiKey, responsesRouter);
 
-// 6) Health-check
+// Health-check endpoint
 app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
 
-// 7) Levantar servidor
+// Start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🌐 Servidor escuchando en puerto ${PORT}`));
+
+// --------------------------------------------------
+// File: models/Response.js
+import mongoose from 'mongoose';
+
+const utmSchema = new mongoose.Schema({
+  source:   String,
+  medium:   String,
+  campaign: String,
+  term:     String,
+  content:  String,
+}, { _id: false });
+
+const contactSchema = new mongoose.Schema({
+  name:      String,
+  email:     String,
+  phone:     String,
+  company:   String,
+  jobtitle:  String,
+  vacantes:  Number,
+  rfc:       String,
+  payload:   mongoose.Schema.Types.Mixed,
+  createdAt: { type: Date, default: Date.now }
+}, { _id: false });
+
+const responseSchema = new mongoose.Schema({
+  visitorId:        { type: String, required: true, index: true },
+  buttonCounts:     {
+    cotizar:  { type: Number, default: 0 },
+    publicar: { type: Number, default: 0 },
+    empleo:   { type: Number, default: 0 },
+  },
+  metadata:         {
+    ip:        String,
+    referer:   String,
+    utmParams: utmSchema,
+  },
+  contacts:         { type: [contactSchema], default: [] },
+  submissionCount:  { type: Number, default: 0 },
+  firstSubmission:  Date,
+  lastSubmission:   Date
+}, { timestamps: true });
+
+export default mongoose.model('Response', responseSchema);
