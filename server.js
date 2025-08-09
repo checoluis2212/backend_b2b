@@ -3,20 +3,17 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 
-// Rutas
-import responsesRouter from './routes/responses.js';   // (ya la tienes)
-import contactsRouter from './routes/contacts.js';     // (nueva)
-
-// Utils
+// Rutas OCC B2B
+import responsesRouter from './routes/responses.js';
 import { sendGA4Event } from './utils/ga4.js';
 
 const app = express();
 
-/* -------------------- Middlewares base -------------------- */
-app.use(cors({ origin: '*' }));       // si quieres, restringe origin
-app.use(express.json({ limit: '1mb' }));
+// 🔹 Configuración CORS global
+app.use(cors({ origin: '*' }));
+app.use(express.json());
 
-/* --------------- Middleware API Key (para rutas privadas) --------------- */
+// 🔹 Middleware de autenticación por API Key
 function checkApiKey(req, res, next) {
   const apiKey = req.headers['x-api-key'];
   if (apiKey !== process.env.API_KEY) {
@@ -25,7 +22,7 @@ function checkApiKey(req, res, next) {
   next();
 }
 
-/* -------------------- Conexión a MongoDB -------------------- */
+// 🔹 Conexión a MongoDB
 const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) {
   console.error('❌ Falta la variable MONGO_URI');
@@ -35,18 +32,16 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB conectado'))
   .catch(err => { console.error('❌ Error MongoDB:', err); process.exit(1); });
 
-/* -------------------- Rutas -------------------- */
-// Rutas OCC protegidas con API Key (como ya lo tenías)
+// 🔹 Rutas OCC protegidas con API Key
 app.use('/api/responses', checkApiKey, responsesRouter);
 
-// NUEVA: contactos SIN API key (se llama directo desde el navegador vía onFormSubmit)
-app.use('/api/contacts', contactsRouter);
-
-// Endpoint test GA4 (protegido)
-app.get('/api/test-ga4', checkApiKey, async (_req, res) => {
+// 🔹 Endpoint de prueba para GA4 protegido con API Key
+app.get('/api/test-ga4', checkApiKey, async (req, res) => {
   try {
     await sendGA4Event('test-visitor-123', 'click_test', {
-      source: 'facebook', medium: 'cpc', campaign: 'b2b-cta'
+      source: 'facebook',
+      medium: 'cpc',
+      campaign: 'b2b-cta'
     });
     res.json({ ok: true, message: 'Evento de prueba enviado a GA4' });
   } catch (error) {
@@ -55,9 +50,9 @@ app.get('/api/test-ga4', checkApiKey, async (_req, res) => {
   }
 });
 
-// Health-check
+// 🔹 Health-check
 app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
 
-/* -------------------- Levantar servidor -------------------- */
+// 🔹 Levantar servidor
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🌐 Servidor escuchando en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🌐 Servidor OCC B2B escuchando en puerto ${PORT}`));
