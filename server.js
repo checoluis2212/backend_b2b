@@ -50,6 +50,68 @@ app.get('/api/test-ga4', checkApiKey, async (req, res) => {
   }
 });
 
+// ================== 🔻 NUEVO ENDPOINT HUBSPOT LEAD 🔻 ==================
+const { HS_PORTAL_ID, HS_FORM_ID } = process.env;
+
+function getClientIp(req) {
+  return (
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    ''
+  );
+}
+
+async function submitToHubSpot({ fields = {}, context = {}, ip = '' }) {
+  const hsPayload = {
+    fields: Object.entries(fields).map(([name, value]) => ({ name, value: value ?? '' })),
+    context: {
+      pageUri: context.pageUri || '',
+      pageName: context.pageName || '',
+      hutk: context.hutk || '',
+      ipAddress: ip
+    },
+    legalConsentOptions: {
+      consent: { consentToProcess: true, text: 'Acepto términos', communications: [] }
+    }
+  };
+
+  const url = `https://api.hsforms.com/submissions/v3/integration/submit/${HS_PORTAL_ID}/${HS_FORM_ID}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(hsPayload)
+  });
+  if (!resp.ok) {
+    const t = await resp.text();
+    console.error('[HS] submit error:', t);
+  }
+}
+
+// (Opcional) Si quieres protegerlo con API Key, agrega checkApiKey como middleware
+app.post('/api/lead', async (req, res) => {
+  try {
+    const { fields = {}, context = {} } = req.body || {};
+    const ip = getClientIp(req);
+    const ua = req.headers['user-agent'] || '';
+
+    // Guarda en colección "Hubspot"
+    await mongoose.connection.collection('Hubspot').insertOne({
+      json: { fields, context },
+      _meta: { ip, ua, createdAt: new Date() }
+    });
+
+    // Reenviar a HubSpot (no bloquea respuesta si falla)
+    submitToHubSpot({ fields, context, ip }).catch(err => console.error('[HS] catch:', err));
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[API] /api/lead error:', e);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+// ================== 🔺 FIN NUEVO ENDPOINT HUBSPOT LEAD 🔺 ==================
+
 // 🔹 Health-check
 app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
 
