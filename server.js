@@ -4,7 +4,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 
-// Rutas OCC B2B
+// Rutas OCC B2B (sin cambios)
 import responsesRouter from './routes/responses.js';
 import { sendGA4Event } from './utils/ga4.js';
 
@@ -12,7 +12,7 @@ const app = express();
 
 /* ======================== CORE ======================== */
 
-// CORS global (abre mientras pruebas; luego restringe a tus dominios)
+// CORS global (abre mientras pruebas; restringe en prod)
 app.use(cors({
   origin: '*',
   methods: ['GET','POST','OPTIONS'],
@@ -83,7 +83,7 @@ async function fetchWithTimeout(url, opts = {}, ms = 12000) {
   }
 }
 
-// envío a HubSpot
+// envío a HubSpot (Forms API v3)
 async function submitToHubSpot({ fields = {}, context = {}, ip = '' }) {
   const hsPayload = {
     fields: Object.entries(fields).map(([name, value]) => ({
@@ -132,18 +132,42 @@ const maybeRequireKey = (req, res, next) => {
   next();
 };
 
-// POST /api/lead
+// POST /api/lead (robusto: acepta body plano o {fields, context})
 app.post('/api/lead', maybeRequireKey, async (req, res) => {
   const t0 = Date.now();
   try {
-    const { fields = {}, context = {}, visitorId } = req.body || {};
+    // --- Adaptador: soportar body plano o con {fields, context} ---
+    const b = req.body || {};
+    const FLAT_FIELD_KEYS = [
+      'email','firstname','lastname','phone','company',
+      'puesto','vacantesAnuales','rfc','aceptaComunicaciones'
+    ];
+
+    // Si no viene b.fields, construimos desde el body plano
+    const fields = b.fields ?? Object.fromEntries(
+      FLAT_FIELD_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]])
+    );
+
+    // Si no viene b.context, construimos desde el body plano
+    const context = b.context ?? {
+      utm_source:  b.utm_source,
+      utm_medium:  b.utm_medium,
+      utm_campaign:b.utm_campaign,
+      utm_content: b.utm_content,
+      utm_term:    b.utm_term,
+      pageUri:     b.pageUri,
+      pageName:    b.pageName,
+      hutk:        b.hutk
+    };
+
+    const visitorId = b.visitorId;
     const ip = getClientIp(req);
     const ua = req.headers['user-agent'] || '';
     const now = new Date();
 
     // (Opcional) validaciones mínimas para visibilidad (no bloqueantes)
     const required = ['email', 'firstname', 'lastname', 'phone', 'company'];
-    const missing = required.filter(k => !String(fields[k] || '').trim());
+    const missing = required.filter(k => !String(fields?.[k] || '').trim());
     if (missing.length) console.warn('[API] lead faltan campos:', missing);
 
     // 1) Guarda submission crudo en colección "Hubspot"
@@ -154,55 +178,63 @@ app.post('/api/lead', maybeRequireKey, async (req, res) => {
     const storedId = ins.insertedId?.toString();
     console.log('[API] lead stored (Hubspot) _id:', storedId);
 
-    // 2) Upsert en colección "responses"
-    const responsesCol = mongoose.connection.collection('responses');
+    // 2) Upsert en colección "responses" (seguro: sólo si hay visitorId o email)
+    try {
+      let key = null;
+      if (visitorId) key = { visitorId: String(visitorId) };
+      else if (fields?.email) key = { 'metadata.hubspotForm.email': fields.email };
 
-    // Clave de unión: preferir visitorId; si no hay, caer al email del form
-    const key = visitorId
-      ? { visitorId: String(visitorId) }
-      : { 'metadata.hubspotForm.email': (fields.email || null) };
-
-    await responsesCol.updateOne(
-      key,
-      {
-        $setOnInsert: {
-          visitorId: visitorId || null,
-          formCount: 0,
-          firstFormDate: now,
-          createdAt: now
-        },
-        $inc: { formCount: 1 },
-        $set: {
-          lastFormDate: now,
-          updatedAt: now,
-          'metadata.ip': ip,
-          'metadata.utmParams': {
-            source: context.utm_source || '(not set)',
-            medium: context.utm_medium || '(not set)',
-            campaign: context.utm_campaign || '(not set)'
+      if (!key) {
+        console.warn('[API] responses upsert omitido: falta visitorId y email');
+      } else {
+        await mongoose.connection.collection('responses').updateOne(
+          key,
+          {
+            $setOnInsert: {
+              visitorId: visitorId || null,
+              formCount: 0,
+              firstFormDate: now,
+              createdAt: now
+            },
+            $inc: { formCount: 1 },
+            $set: {
+              lastFormDate: now,
+              updatedAt: now,
+              'metadata.ip': ip,
+              'metadata.utmParams': {
+                source: context?.utm_source || '(not set)',
+                medium: context?.utm_medium || '(not set)',
+                campaign: context?.utm_campaign || '(not set)'
+              },
+              // 👉 guardamos TODO el formulario del último envío
+              'metadata.hubspotForm': { ...(fields || {}) }
+            }
           },
-          // 👉 aquí guardamos TODO el formulario del último envío
-          'metadata.hubspotForm': { ...fields }
-        }
-      },
-      { upsert: true }
-    );
-
-    // 3) Envío a HubSpot en background (no bloquea la respuesta)
-    if (SKIP_HS === 'true') {
-      console.log('[API] SKIP_HS=true → no se envía a HubSpot');
-    } else if (!HS_PORTAL_ID || !HS_FORM_ID) {
-      console.error('[API] Falta HS_PORTAL_ID o HS_FORM_ID → se omite envío a HubSpot');
-    } else {
-      submitToHubSpot({ fields, context, ip }).catch(err =>
-        console.error('[HS] catch:', err?.message || err)
-      );
+          { upsert: true }
+        );
+      }
+    } catch (e) {
+      console.error('[API] responses.updateOne error:', e?.message || e);
+      // no rompemos la respuesta si solo falló el upsert secundario
     }
 
-    const ms = Date.now() - t0;
-    return res.json({ ok: true, storedId, ms });
+    // 3) Responder YA al cliente (éxito en Mongo garantizado)
+    res.json({ ok: true, storedId, ms: Date.now() - t0 });
+
+    // 4) Enviar a HubSpot en background (no bloquea la respuesta)
+    if (SKIP_HS === 'true') {
+      console.log('[API] SKIP_HS=true → no se envía a HubSpot');
+      return;
+    }
+    if (!HS_PORTAL_ID || !HS_FORM_ID) {
+      console.error('[API] Falta HS_PORTAL_ID o HS_FORM_ID → se omite envío a HubSpot');
+      return;
+    }
+    submitToHubSpot({ fields, context, ip })
+      .catch(err => console.error('[HS] catch:', err?.message || err));
+
   } catch (e) {
-    console.error('[API] /api/lead error:', e);
+    console.error('[API] /api/lead error:', e?.stack || e);
     return res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
