@@ -1,3 +1,4 @@
+// server.js (o index.js)
 import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -11,7 +12,7 @@ const app = express();
 
 /* ======================== CORE ======================== */
 
-// CORS global (abre mientras pruebas)
+// CORS global (abre mientras pruebas; luego restringe a tus dominios)
 app.use(cors({
   origin: '*',
   methods: ['GET','POST','OPTIONS'],
@@ -135,19 +136,59 @@ const maybeRequireKey = (req, res, next) => {
 app.post('/api/lead', maybeRequireKey, async (req, res) => {
   const t0 = Date.now();
   try {
-    const { fields = {}, context = {} } = req.body || {};
+    const { fields = {}, context = {}, visitorId } = req.body || {};
     const ip = getClientIp(req);
     const ua = req.headers['user-agent'] || '';
+    const now = new Date();
 
-    // Guarda en colección "Hubspot"
+    // (Opcional) validaciones mínimas para visibilidad (no bloqueantes)
+    const required = ['email', 'firstname', 'lastname', 'phone', 'company'];
+    const missing = required.filter(k => !String(fields[k] || '').trim());
+    if (missing.length) console.warn('[API] lead faltan campos:', missing);
+
+    // 1) Guarda submission crudo en colección "Hubspot"
     const ins = await mongoose.connection.collection('Hubspot').insertOne({
       json: { fields, context },
-      _meta: { ip, ua, createdAt: new Date() }
+      _meta: { ip, ua, createdAt: now }
     });
     const storedId = ins.insertedId?.toString();
-    console.log('[API] lead stored _id:', storedId);
+    console.log('[API] lead stored (Hubspot) _id:', storedId);
 
-    // Envío a HubSpot en background (no bloquea la respuesta)
+    // 2) Upsert en colección "responses"
+    const responsesCol = mongoose.connection.collection('responses');
+
+    // Clave de unión: preferir visitorId; si no hay, caer al email del form
+    const key = visitorId
+      ? { visitorId: String(visitorId) }
+      : { 'metadata.hubspotForm.email': (fields.email || null) };
+
+    await responsesCol.updateOne(
+      key,
+      {
+        $setOnInsert: {
+          visitorId: visitorId || null,
+          formCount: 0,
+          firstFormDate: now,
+          createdAt: now
+        },
+        $inc: { formCount: 1 },
+        $set: {
+          lastFormDate: now,
+          updatedAt: now,
+          'metadata.ip': ip,
+          'metadata.utmParams': {
+            source: context.utm_source || '(not set)',
+            medium: context.utm_medium || '(not set)',
+            campaign: context.utm_campaign || '(not set)'
+          },
+          // 👉 aquí guardamos TODO el formulario del último envío
+          'metadata.hubspotForm': { ...fields }
+        }
+      },
+      { upsert: true }
+    );
+
+    // 3) Envío a HubSpot en background (no bloquea la respuesta)
     if (SKIP_HS === 'true') {
       console.log('[API] SKIP_HS=true → no se envía a HubSpot');
     } else if (!HS_PORTAL_ID || !HS_FORM_ID) {
