@@ -1,12 +1,15 @@
 // routes/lead.js
 import express from 'express';
 import mongoose from 'mongoose';
-import HubspotModel from '../models/Hubspot.js';
-import ResponseModel from '../models/Response.js';
+
+// Si tu runtime NO es Node 18+, descomenta esto:
+// import fetch from 'node-fetch';
 
 const router = express.Router();
 
-/* ======================= Helpers ======================= */
+/* ======================= helpers ======================= */
+const now = () => new Date();
+
 function getIp(req) {
   return (
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
@@ -15,12 +18,8 @@ function getIp(req) {
     ''
   );
 }
-const now = () => new Date();
 
-/** Normaliza body:
- * A) { visitorId, fields: {...}, context:{...}, button }
- * B) { visitorId, button, utm_*, pageUri, pageName, hutk, ...camposFormEnTopLevel }
- */
+// Acepta payload anidado o plano
 function normalizeBody(body = {}) {
   const isNested = body.fields && typeof body.fields === 'object';
 
@@ -29,7 +28,7 @@ function normalizeBody(body = {}) {
     : Object.fromEntries(
         Object.entries(body).filter(([k]) =>
           ![
-            'visitorId', 'visitorID', 'visitorid',
+            'visitorId','visitorID','visitorid',
             'button',
             'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
             'pageUri','pageName','hutk'
@@ -56,7 +55,7 @@ function normalizeBody(body = {}) {
   return { fields, context, visitorId, button };
 }
 
-/* =============== Healthcheck específico =============== */
+/* =============== healthcheck específico =============== */
 router.get('/health', (_req, res) => {
   const PORTAL_ID = process.env.HS_PORTAL_ID || process.env.HUBSPOT_PORTAL_ID;
   const FORM_ID   = process.env.HS_FORM_ID || process.env.HUBSPOT_FORM_ID;
@@ -77,24 +76,21 @@ router.post('/', async (req, res) => {
     const ip = getIp(req);
     const ua = req.headers['user-agent'] || '';
 
-    /* 1) Guarda submission crudo en colección "Hubspot" */
-    const hubDoc = await mongoose.connection.collection('Hubspot').insertOne({
+    // --- guarda submission crudo en "Hubspot"
+    const ins = await mongoose.connection.collection('Hubspot').insertOne({
       json: { fields, context },
       _meta: { ip, ua, createdAt: now() }
     });
-    const storedId = hubDoc.insertedId;
+    const storedId = ins.insertedId;
 
-    /* 2) Upsert en "responses" */
+    // --- upsert en "responses" (sin conflicto de formCount)
     if (visitorId) {
-      const responsesCol = mongoose.connection.collection('responses');
-
-      await responsesCol.updateOne(
+      await mongoose.connection.collection('responses').updateOne(
         { visitorId },
         {
           $setOnInsert: {
             visitorId,
             createdAt: now()
-            // ⚠️ NO pongas formCount aquí (evita conflicto con $inc)
           },
           $set: {
             updatedAt: now(),
@@ -106,10 +102,9 @@ router.post('/', async (req, res) => {
               content: context.utm_content || '(not set)',
               term: context.utm_term || '(not set)'
             },
-            // guarda TODO el último formulario
-            'metadata.hubspotForm': { ...fields }
+            'metadata.hubspotForm': { ...fields } // último formulario completo
           },
-          $inc: { formCount: 1 }, // ✅ si no existe, Mongo lo crea con 1
+          $inc: { formCount: 1 },
           ...(button
             ? { $push: { buttons: {
                   name: String(button),
@@ -123,7 +118,7 @@ router.post('/', async (req, res) => {
       );
     }
 
-    /* 3) Envío a HubSpot (background + logs claros) */
+    // --- envío a HubSpot (background, con logs)
     const PORTAL_ID = process.env.HS_PORTAL_ID || process.env.HUBSPOT_PORTAL_ID;
     const FORM_ID   = process.env.HS_FORM_ID || process.env.HUBSPOT_FORM_ID;
 
@@ -132,17 +127,17 @@ router.post('/', async (req, res) => {
     } else if (!PORTAL_ID || !FORM_ID) {
       console.error('[HS] Falta HS_PORTAL_ID/HS_FORM_ID (o HUBSPOT_*) → se omite envío');
     } else {
-      // Mapea tus nombres a los internal names del form de HubSpot
+      // Mapea tus campos a los internal names requeridos por tu form
       const MAP = {
         puesto: 'job_title',
         vacantes_anuales: 'annual_processes'
-        // agrega más si aplica
+        // agrega aquí otros alias → internal name si los tienes
       };
 
-      const hsFields = Object.entries(fields).map(([name, value]) => {
-        const mapped = MAP[name] || name;
-        return { name: mapped, value: value ?? '' };
-      });
+      const hsFields = Object.entries(fields).map(([name, value]) => ({
+        name: MAP[name] || name,
+        value: value ?? ''
+      }));
 
       const hsPayload = {
         fields: hsFields,
@@ -156,6 +151,9 @@ router.post('/', async (req, res) => {
           consent: { consentToProcess: true, text: 'Acepto términos', communications: [] }
         }
       };
+
+      // log de depuración (puedes comentar cuando todo quede ok)
+      console.log('[HS] payload →', JSON.stringify(hsPayload));
 
       (async () => {
         try {
@@ -177,10 +175,10 @@ router.post('/', async (req, res) => {
       })();
     }
 
-    return res.json({ ok: true, storedId, ms: Date.now() - t0 });
+    res.json({ ok: true, storedId, ms: Date.now() - t0 });
   } catch (err) {
-    console.error('❌ Error en /api/lead:', err);
-    return res.status(500).json({ ok: false, error: 'server_error' });
+    console.error('❌ /api/lead error:', err);
+    res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
 
