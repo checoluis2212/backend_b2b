@@ -30,20 +30,25 @@ router.post('/', async (req, res) => {
 
     const ua = req.headers['user-agent'] || '';
 
+    // 🔹 Filtrar hutk inválido antes de guardar
+    const hubspotContext = {
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_content,
+      utm_term,
+      pageUri,
+      pageName
+    };
+    if (hutk && hutk.trim().length > 15) {
+      hubspotContext.hutk = hutk.trim();
+    }
+
     // 1️⃣ Guardar en colección Hubspot (Mongo)
     const hubspotDoc = new HubspotModel({
       json: {
         fields: formFields,
-        context: {
-          utm_source,
-          utm_medium,
-          utm_campaign,
-          utm_content,
-          utm_term,
-          pageUri,
-          pageName,
-          hutk
-        }
+        context: hubspotContext
       },
       _meta: { ip, ua, createdAt: new Date() }
     });
@@ -65,14 +70,14 @@ router.post('/', async (req, res) => {
               campaign: utm_campaign || '(not set)',
               content: utm_content || '(not set)',
               term: utm_term || '(not set)'
-            },
-            $push: {
-              buttons: {
-                name: button,
-                pageUri,
-                pageName,
-                date: new Date()
-              }
+            }
+          },
+          $push: {
+            buttons: {
+              name: button,
+              pageUri,
+              pageName,
+              date: new Date()
             }
           },
           $inc: { formCount: 1 }
@@ -81,7 +86,7 @@ router.post('/', async (req, res) => {
       );
     }
 
-    // 3️⃣ Preparar contexto para HubSpot sin `hutk` inválido
+    // 3️⃣ Preparar contexto para HubSpot
     const hsContext = {
       pageUri,
       pageName,
