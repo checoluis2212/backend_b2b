@@ -1,113 +1,129 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import fetch from 'node-fetch';
+import HubspotModel from '../models/Hubspot.js';
+import ResponseModel from '../models/Response.js';
 
 const router = express.Router();
 
-// --- Endpoint principal
 router.post('/', async (req, res) => {
   try {
-    const { visitorId, fields, context, button } = req.body;
+    const {
+      visitorId,
+      button,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_content,
+      utm_term,
+      pageUri,
+      pageName,
+      hutk,
+      ...formFields
+    } = req.body;
 
-    if (!visitorId || !fields) {
-      return res.status(400).json({ ok: false, message: 'Faltan visitorId o fields' });
-    }
-
-    const ipCliente =
+    const ip =
       req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
       req.ip ||
       req.socket?.remoteAddress ||
-      null;
+      '';
 
-    // --- Guardar en MongoDB sin conflicto de formCount
-    await mongoose.connection.collection('responses').updateOne(
-      { visitorId },
-      {
-        $setOnInsert: {
-          visitorId,
-          createdAt: new Date()
-        },
-        $set: {
-          updatedAt: new Date(),
-          'metadata.ip': ipCliente,
-          'metadata.utmParams': {
-            source: context?.utm_source || '(not set)',
-            medium: context?.utm_medium || '(not set)',
-            campaign: context?.utm_campaign || '(not set)',
-            content: context?.utm_content || '(not set)',
-            term: context?.utm_term || '(not set)'
-          },
-          'metadata.hubspotForm': { ...fields }
-        },
-        $inc: { formCount: 1 },
-        ...(button
-          ? { $push: { buttons: {
-              name: String(button),
-              pageUri: context?.pageUri || '',
-              pageName: context?.pageName || '',
-              date: new Date()
-            } } }
-          : {})
+    const ua = req.headers['user-agent'] || '';
+
+    // 1️⃣ Guardar en colección Hubspot (Mongo)
+    const hubspotDoc = new HubspotModel({
+      json: {
+        fields: formFields,
+        context: {
+          utm_source,
+          utm_medium,
+          utm_campaign,
+          utm_content,
+          utm_term,
+          pageUri,
+          pageName,
+          hutk
+        }
       },
-      { upsert: true }
-    );
+      _meta: { ip, ua, createdAt: new Date() }
+    });
 
-    // --- Enviar a HubSpot si SKIP_HS=false
-    if (String(process.env.SKIP_HS) !== 'true') {
-      const PORTAL_ID = process.env.HS_PORTAL_ID;
-      const FORM_ID = process.env.HS_FORM_ID;
+    await hubspotDoc.save();
 
-      if (PORTAL_ID && FORM_ID) {
-        const MAP = {
-          puesto: 'job_title',
-          vacantes_anuales: 'annual_processes'
-        };
-
-        const hsFields = Object.entries(fields).map(([name, value]) => ({
-          name: MAP[name] || name,
-          value: value ?? ''
-        }));
-
-        const ctx = {
-          pageUri: context?.pageUri || '',
-          pageName: context?.pageName || '',
-          ipAddress: ipCliente
-        };
-
-        const hutk = (context?.hutk || '').trim();
-        if (hutk && hutk.length >= 20) {
-          ctx.hutk = hutk;
-        }
-
-        const hsPayload = {
-          fields: hsFields,
-          context: ctx,
-          legalConsentOptions: {
-            consent: { consentToProcess: true, text: 'Acepto términos', communications: [] }
-          }
-        };
-
-        const url = `https://api.hsforms.com/submissions/v3/integration/submit/${PORTAL_ID}/${FORM_ID}`;
-        const resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(hsPayload)
-        });
-
-        if (!resp.ok) {
-          const errorText = await resp.text();
-          console.error('[HS] submit error:', resp.status, errorText);
-        } else {
-          console.log('[HS] submit ok');
-        }
-      }
+    // 2️⃣ Actualizar en responses sin conflicto en `formCount`
+    if (visitorId && button) {
+      await ResponseModel.updateOne(
+        { visitorId },
+        {
+          $setOnInsert: { visitorId, createdAt: new Date() },
+          $set: {
+            updatedAt: new Date(),
+            'metadata.ip': ip,
+            'metadata.utmParams': {
+              source: utm_source || '(not set)',
+              medium: utm_medium || '(not set)',
+              campaign: utm_campaign || '(not set)',
+              content: utm_content || '(not set)',
+              term: utm_term || '(not set)'
+            },
+            $push: {
+              buttons: {
+                name: button,
+                pageUri,
+                pageName,
+                date: new Date()
+              }
+            }
+          },
+          $inc: { formCount: 1 }
+        },
+        { upsert: true }
+      );
     }
 
-    res.json({ ok: true });
+    // 3️⃣ Preparar contexto para HubSpot sin `hutk` inválido
+    const hsContext = {
+      pageUri,
+      pageName,
+      ipAddress: ip
+    };
+    if (hutk && hutk.trim().length > 15) {
+      hsContext.hutk = hutk.trim();
+    }
 
+    // 4️⃣ Enviar a HubSpot API (async)
+    (async () => {
+      try {
+        const hsRes = await fetch(
+          `https://api.hsforms.com/submissions/v3/integration/submit/${process.env.HUBSPOT_PORTAL_ID}/${process.env.HUBSPOT_FORM_ID}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fields: Object.entries(formFields).map(([name, value]) => ({
+                name,
+                value
+              })),
+              context: hsContext
+            })
+          }
+        );
+
+        const hsData = await hsRes.text();
+        if (!hsRes.ok) {
+          console.error('[HS] submit error:', hsRes.status, hsData);
+        } else {
+          console.log('[HS] enviado correctamente:', hsData);
+        }
+      } catch (err) {
+        console.error('❌ Error enviando a HubSpot:', err.message);
+      }
+    })();
+
+    res.json({ ok: true });
   } catch (err) {
-    console.error('[API] lead error:', err);
-    res.status(500).json({ ok: false, error: err.message });
+    console.error('❌ Error en /api/lead:', err);
+    res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
 
