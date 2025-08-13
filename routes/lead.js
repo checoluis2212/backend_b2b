@@ -1,134 +1,79 @@
+// routes/lead.js
 import express from 'express';
-import mongoose from 'mongoose';
 import fetch from 'node-fetch';
-import HubspotModel from '../models/Hubspot.js';
-import ResponseModel from '../models/Response.js';
+import Lead from '../models/Lead.js'; // tu modelo MongoDB
 
 const router = express.Router();
 
+// Configuración HubSpot
+const HUBSPOT_PORTAL_ID = process.env.HUBSPOT_PORTAL_ID;
+const HUBSPOT_FORM_GUID = process.env.HUBSPOT_FORM_GUID;
+
 router.post('/', async (req, res) => {
   try {
-    const {
+    const { visitorId, fields, context } = req.body;
+
+    // 1️⃣ Guardar en MongoDB todo tal cual
+    const leadDoc = await Lead.create({
       visitorId,
-      button,
-      utm_source,
-      utm_medium,
-      utm_campaign,
-      utm_content,
-      utm_term,
-      pageUri,
-      pageName,
-      hutk,
-      ...formFields
-    } = req.body;
-
-    const ip =
-      req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-      req.ip ||
-      req.socket?.remoteAddress ||
-      '';
-
-    const ua = req.headers['user-agent'] || '';
-
-    // 🔹 Filtrar hutk inválido antes de guardar
-    const hubspotContext = {
-      utm_source,
-      utm_medium,
-      utm_campaign,
-      utm_content,
-      utm_term,
-      pageUri,
-      pageName
-    };
-    if (hutk && hutk.trim().length > 15) {
-      hubspotContext.hutk = hutk.trim();
-    }
-
-    // 1️⃣ Guardar en colección Hubspot (Mongo)
-    const hubspotDoc = new HubspotModel({
-      json: {
-        fields: formFields,
-        context: hubspotContext
-      },
-      _meta: { ip, ua, createdAt: new Date() }
+      fields,
+      context,
+      createdAt: new Date()
     });
+    console.log('[API] lead stored (Mongo) _id:', leadDoc._id);
 
-    await hubspotDoc.save();
-
-    // 2️⃣ Actualizar en responses sin conflicto en `formCount`
-    if (visitorId && button) {
-      await ResponseModel.updateOne(
-        { visitorId },
-        {
-          $setOnInsert: { visitorId, createdAt: new Date() },
-          $set: {
-            updatedAt: new Date(),
-            'metadata.ip': ip,
-            'metadata.utmParams': {
-              source: utm_source || '(not set)',
-              medium: utm_medium || '(not set)',
-              campaign: utm_campaign || '(not set)',
-              content: utm_content || '(not set)',
-              term: utm_term || '(not set)'
-            }
-          },
-          $push: {
-            buttons: {
-              name: button,
-              pageUri,
-              pageName,
-              date: new Date()
-            }
-          },
-          $inc: { formCount: 1 }
-        },
-        { upsert: true }
-      );
-    }
-
-    // 3️⃣ Preparar contexto para HubSpot
-    const hsContext = {
-      pageUri,
-      pageName,
-      ipAddress: ip
+    // 2️⃣ Construir solo lo que va a HubSpot
+    const hubspotFields = {
+      firstname: fields.firstname || '',
+      lastname: fields.lastname || '',
+      email: fields.email || '',
+      phone: fields.phone || '',
+      company: fields.company || '',
+      puesto: fields.puesto || '',
+      vacantesAnuales: fields.vacantesAnuales || fields.vacantes_anuales || '',
+      rfc: fields.rfc || '',
+      hs_visitor_id: visitorId || '',
+      utm_source: context?.utm_source || '',
+      utm_medium: context?.utm_medium || '',
+      utm_campaign: context?.utm_campaign || ''
     };
-    if (hutk && hutk.trim().length > 15) {
-      hsContext.hutk = hutk.trim();
+
+    // 3️⃣ Validar hutk (para evitar INVALID_HUTK)
+    const hubspotContext = {
+      pageUri: context?.pageUri || '',
+      pageName: context?.pageName || ''
+    };
+    if (context?.hutk && /^[0-9a-f-]{36}$/i.test(context.hutk)) {
+      hubspotContext.hutk = context.hutk;
     }
 
-    // 4️⃣ Enviar a HubSpot API (async)
-    (async () => {
-      try {
-        const hsRes = await fetch(
-          `https://api.hsforms.com/submissions/v3/integration/submit/${process.env.HUBSPOT_PORTAL_ID}/${process.env.HUBSPOT_FORM_ID}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              fields: Object.entries(formFields).map(([name, value]) => ({
-                name,
-                value
-              })),
-              context: hsContext
-            })
-          }
-        );
+    // 4️⃣ Enviar a HubSpot
+    const hsPayload = {
+      fields: Object.entries(hubspotFields).map(([name, value]) => ({ name, value })),
+      context: hubspotContext
+    };
 
-        const hsData = await hsRes.text();
-        if (!hsRes.ok) {
-          console.error('[HS] submit error:', hsRes.status, hsData);
-        } else {
-          console.log('[HS] enviado correctamente:', hsData);
-        }
-      } catch (err) {
-        console.error('❌ Error enviando a HubSpot:', err.message);
+    const hsRes = await fetch(
+      `https://api.hsforms.com/submissions/v3/integration/submit/${HUBSPOT_PORTAL_ID}/${HUBSPOT_FORM_GUID}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(hsPayload)
       }
-    })();
+    );
 
+    if (!hsRes.ok) {
+      const errorText = await hsRes.text();
+      console.error('[HS] submit error:', errorText);
+      return res.status(400).json({ ok: false, message: 'Error enviando a HubSpot', hs: errorText });
+    }
+
+    console.log('[HS] Lead enviado correctamente');
     res.json({ ok: true });
-  } catch (err) {
-    console.error('❌ Error en /api/lead:', err);
-    res.status(500).json({ ok: false, error: 'server_error' });
+
+  } catch (error) {
+    console.error('[API] lead error:', error);
+    res.status(500).json({ ok: false, message: 'Error interno en lead' });
   }
 });
 
