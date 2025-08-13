@@ -12,7 +12,7 @@ router.post('/', async (req, res) => {
   try {
     const { visitorId, fields, context } = req.body;
 
-    // 1️⃣ Guardar en MongoDB todo tal cual
+    // 1️⃣ Guardar TODO en MongoDB como está
     const leadDoc = await Lead.create({
       visitorId,
       fields,
@@ -21,7 +21,7 @@ router.post('/', async (req, res) => {
     });
     console.log('[API] lead stored (Mongo) _id:', leadDoc._id);
 
-    // 2️⃣ Campos que mandamos a HubSpot
+    // 2️⃣ Solo mandar a HubSpot lo necesario
     const hubspotFields = {
       firstname: fields.firstname || '',
       lastname: fields.lastname || '',
@@ -37,25 +37,19 @@ router.post('/', async (req, res) => {
       utm_campaign: context?.utm_campaign || ''
     };
 
-    // 3️⃣ Contexto para HubSpot (sin hutk inválido)
+    // 3️⃣ Context sin hutk
     const hubspotContext = {
       pageUri: context?.pageUri || '',
       pageName: context?.pageName || ''
     };
 
-    // Solo incluimos hutk si parece válido
-    if (context?.hutk && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(context.hutk)) {
-      hubspotContext.hutk = context.hutk;
-    } else {
-      console.warn('[HS] hutk no válido, se enviará sin hutk');
-    }
-
-    // 4️⃣ Enviar a HubSpot
+    // 4️⃣ Payload final a HubSpot
     const hsPayload = {
       fields: Object.entries(hubspotFields).map(([name, value]) => ({ name, value })),
       context: hubspotContext
     };
 
+    // 5️⃣ Enviar a HubSpot
     const hsRes = await fetch(
       `https://api.hsforms.com/submissions/v3/integration/submit/${HUBSPOT_PORTAL_ID}/${HUBSPOT_FORM_GUID}`,
       {
