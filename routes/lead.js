@@ -1,13 +1,16 @@
 // routes/lead.js
 import express from 'express';
 import fetch from 'node-fetch';
-import Lead from '../models/Lead.js'; // tu modelo MongoDB
+import Lead from '../models/Lead.js';
 
 const router = express.Router();
 
 // Configuración HubSpot
 const HUBSPOT_PORTAL_ID = process.env.HUBSPOT_PORTAL_ID;
 const HUBSPOT_FORM_GUID = process.env.HUBSPOT_FORM_GUID;
+
+// Regex para UUID v4 (formato válido de hutk)
+const hutkRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.post('/', async (req, res) => {
   try {
@@ -38,18 +41,22 @@ router.post('/', async (req, res) => {
       utm_campaign: context?.utm_campaign || ''
     };
 
-    // 3️⃣ Validar hutk (para evitar INVALID_HUTK)
+    // 3️⃣ Construir el contexto válido para HubSpot
     const hubspotContext = {
       pageUri: context?.pageUri || '',
       pageName: context?.pageName || ''
     };
-    if (context?.hutk && /^[0-9a-f-]{36}$/i.test(context.hutk)) {
+
+    // Solo enviar hutk si es válido
+    if (context?.hutk && hutkRegex.test(context.hutk)) {
       hubspotContext.hutk = context.hutk;
     }
 
     // 4️⃣ Enviar a HubSpot
     const hsPayload = {
-      fields: Object.entries(hubspotFields).map(([name, value]) => ({ name, value })),
+      fields: Object.entries(hubspotFields)
+        .filter(([_, value]) => value !== '') // No mandar campos vacíos
+        .map(([name, value]) => ({ name, value })),
       context: hubspotContext
     };
 
