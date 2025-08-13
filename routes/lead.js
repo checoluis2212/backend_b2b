@@ -8,11 +8,19 @@ router.post('/', async (req, res) => {
   try {
     const { visitorId, fields, context } = req.body;
 
-    if (!fields?.email) {
+    // ✅ Acepta tanto objeto como array para fields
+    let emailField;
+    if (Array.isArray(fields)) {
+      emailField = fields.find(f => f.name === 'email')?.value;
+    } else {
+      emailField = fields?.email;
+    }
+
+    if (!emailField) {
       return res.status(400).json({ ok: false, error: 'Email es requerido' });
     }
 
-    // 1️⃣ Guardar en Mongo
+    // Guardar en Mongo
     let response = new Response({
       visitorId: visitorId || null,
       json: { fields, context },
@@ -23,10 +31,8 @@ router.post('/', async (req, res) => {
     });
 
     await response.save();
-
     console.log('[API] Lead guardado en Mongo _id:', response._id);
 
-    // 2️⃣ Responder OK (el envío a HubSpot lo hace el frontend vía form embed)
     res.json({ ok: true, id: response._id });
 
   } catch (err) {
