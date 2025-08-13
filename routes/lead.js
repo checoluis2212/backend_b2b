@@ -1,3 +1,4 @@
+// routes/lead.js
 import express from 'express';
 import mongoose from 'mongoose';
 import HubspotModel from '../models/Hubspot.js';
@@ -5,7 +6,7 @@ import ResponseModel from '../models/Response.js';
 
 const router = express.Router();
 
-// Helpers
+/* ======================= Helpers ======================= */
 function getIp(req) {
   return (
     req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
@@ -14,21 +15,21 @@ function getIp(req) {
     ''
   );
 }
+const now = () => new Date();
 
-function now() { return new Date(); }
-
-// Normaliza el cuerpo para aceptar tanto:
-// A) { visitorId, fields: {...}, context: {...} }
-// B) { visitorId, button, utm_source,..., pageUri, pageName, hutk, <campos del form en top-level> }
+/** Normaliza body:
+ * A) { visitorId, fields: {...}, context:{...}, button }
+ * B) { visitorId, button, utm_*, pageUri, pageName, hutk, ...camposFormEnTopLevel }
+ */
 function normalizeBody(body = {}) {
   const isNested = body.fields && typeof body.fields === 'object';
 
   const fields = isNested
     ? body.fields
     : Object.fromEntries(
-        Object.entries(body).filter(
-          ([k]) => ![
-            'visitorId','visitorID','visitorid',
+        Object.entries(body).filter(([k]) =>
+          ![
+            'visitorId', 'visitorID', 'visitorid',
             'button',
             'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
             'pageUri','pageName','hutk'
@@ -55,7 +56,20 @@ function normalizeBody(body = {}) {
   return { fields, context, visitorId, button };
 }
 
-// POST /api/lead
+/* =============== Healthcheck específico =============== */
+router.get('/health', (_req, res) => {
+  const PORTAL_ID = process.env.HS_PORTAL_ID || process.env.HUBSPOT_PORTAL_ID;
+  const FORM_ID   = process.env.HS_FORM_ID || process.env.HUBSPOT_FORM_ID;
+
+  res.json({
+    ok: true,
+    mongo: !!mongoose.connection?.readyState,
+    hs_ready: !!(PORTAL_ID && FORM_ID),
+    skip_hs: String(process.env.SKIP_HS) === 'true'
+  });
+});
+
+/* ========================= POST /api/lead ========================= */
 router.post('/', async (req, res) => {
   const t0 = Date.now();
   try {
@@ -63,22 +77,25 @@ router.post('/', async (req, res) => {
     const ip = getIp(req);
     const ua = req.headers['user-agent'] || '';
 
-    // 1) Guarda en colección Hubspot (Mongo)
-    const hubDoc = await mongoose.connection
-      .collection('Hubspot')
-      .insertOne({
-        json: { fields, context },
-        _meta: { ip, ua, createdAt: now() }
-      });
+    /* 1) Guarda submission crudo en colección "Hubspot" */
+    const hubDoc = await mongoose.connection.collection('Hubspot').insertOne({
+      json: { fields, context },
+      _meta: { ip, ua, createdAt: now() }
+    });
+    const storedId = hubDoc.insertedId;
 
-    // 2) Actualiza "responses" (tu lógica de botones / utm)
+    /* 2) Upsert en "responses" */
     if (visitorId) {
       const responsesCol = mongoose.connection.collection('responses');
 
       await responsesCol.updateOne(
         { visitorId },
         {
-          $setOnInsert: { visitorId, createdAt: now() },
+          $setOnInsert: {
+            visitorId,
+            createdAt: now()
+            // ⚠️ NO pongas formCount aquí (evita conflicto con $inc)
+          },
           $set: {
             updatedAt: now(),
             'metadata.ip': ip,
@@ -89,34 +106,43 @@ router.post('/', async (req, res) => {
               content: context.utm_content || '(not set)',
               term: context.utm_term || '(not set)'
             },
-            // Guarda TODO el último formulario para referencia
+            // guarda TODO el último formulario
             'metadata.hubspotForm': { ...fields }
           },
+          $inc: { formCount: 1 }, // ✅ si no existe, Mongo lo crea con 1
           ...(button
-            ? { $push: { buttons: { name: button, pageUri: context.pageUri || '', pageName: context.pageName || '', date: now() } } }
+            ? { $push: { buttons: {
+                  name: String(button),
+                  pageUri: context.pageUri || '',
+                  pageName: context.pageName || '',
+                  date: now()
+                } } }
             : {})
         },
         { upsert: true }
       );
     }
 
-    // 3) Disparo a HubSpot (en background, con logs claros)
+    /* 3) Envío a HubSpot (background + logs claros) */
     const PORTAL_ID = process.env.HS_PORTAL_ID || process.env.HUBSPOT_PORTAL_ID;
     const FORM_ID   = process.env.HS_FORM_ID || process.env.HUBSPOT_FORM_ID;
 
-    if (!PORTAL_ID || !FORM_ID) {
-      console.error('[HS] Falta HS_PORTAL_ID/HS_FORM_ID (o HUBSPOT_*). Se omite envío.');
+    if (String(process.env.SKIP_HS) === 'true') {
+      console.log('[HS] SKIP_HS=true → no se envía a HubSpot');
+    } else if (!PORTAL_ID || !FORM_ID) {
+      console.error('[HS] Falta HS_PORTAL_ID/HS_FORM_ID (o HUBSPOT_*) → se omite envío');
     } else {
-      // Si quieres filtrar a campos “seguros”:
-      // const SAFE = ['email','firstname','lastname','phone','company'];
-      // const hsFields = Object.entries(fields)
-      //   .filter(([k]) => SAFE.includes(k))
-      //   .map(([name, value]) => ({ name, value: value ?? '' }));
+      // Mapea tus nombres a los internal names del form de HubSpot
+      const MAP = {
+        puesto: 'job_title',
+        vacantes_anuales: 'annual_processes'
+        // agrega más si aplica
+      };
 
-      const hsFields = Object.entries(fields).map(([name, value]) => ({
-        name,
-        value: value ?? ''
-      }));
+      const hsFields = Object.entries(fields).map(([name, value]) => {
+        const mapped = MAP[name] || name;
+        return { name: mapped, value: value ?? '' };
+      });
 
       const hsPayload = {
         fields: hsFields,
@@ -139,7 +165,6 @@ router.post('/', async (req, res) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(hsPayload)
           });
-
           const txt = await resp.text().catch(() => '');
           if (!resp.ok) {
             console.error('[HS] submit error:', resp.status, resp.statusText, txt?.slice(0, 800));
@@ -152,7 +177,7 @@ router.post('/', async (req, res) => {
       })();
     }
 
-    return res.json({ ok: true, storedId: hubDoc.insertedId, ms: Date.now() - t0 });
+    return res.json({ ok: true, storedId, ms: Date.now() - t0 });
   } catch (err) {
     console.error('❌ Error en /api/lead:', err);
     return res.status(500).json({ ok: false, error: 'server_error' });
