@@ -78,40 +78,32 @@ const maybeRequireKey = (req, res, next) => {
 };
 
 // POST /api/lead robusto: des-empaca (body) y guarda tal cual en "Hubspot"
+// en server.js (o donde tengas el endpoint actual de /api/lead)
 app.post('/api/lead', maybeRequireKey, async (req, res) => {
   const t0 = Date.now();
   try {
-    // 1) Tomar el payload real sin importar el formato
-    let b = req.body ?? {};
-    if (typeof b === 'string') {
-      try { b = JSON.parse(b); } catch (_) {}
-    }
-    if (b && typeof b.body === 'string') {
-      try { b = JSON.parse(b.body); } catch (_) { b = b.body; }
-    } else if (b && b.body) {
-      b = b.body;
-    }
-
-    // 2) Meta
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
+    const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || '').trim();
     const ua = req.headers['user-agent'] || '';
     const now = new Date();
 
-    // 3) Guarda en la colección Hubspot el payload "plano"
+    // ✅ si n8n mandó todo ($json), usa req.body.body; si mandó sólo $json.body, usa req.body
+    const payload = (req.body && typeof req.body.body === 'object') ? req.body.body : (req.body || {});
+
+    // log mínimo para confirmar qué claves llegaron
+    console.log('[API] /api/lead keys:', Object.keys(payload));
+
     const ins = await mongoose.connection.collection('Hubspot').insertOne({
-      json: b,
+      json: payload,
       _meta: { ip, ua, createdAt: now }
     });
 
-    const storedId = ins.insertedId?.toString();
-    console.log('[API] lead stored (Hubspot) _id:', storedId, 'keys:', Object.keys(b || {}));
-
-    res.json({ ok: true, storedId, ms: Date.now() - t0 });
+    res.json({ ok: true, storedId: ins.insertedId?.toString(), ms: Date.now() - t0 });
   } catch (e) {
     console.error('[API] /api/lead error:', e?.stack || e);
     res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
+
 
 
 /* ================== FIN ENDPOINT HUBSPOT LEAD ================== */
