@@ -91,11 +91,12 @@ app.post('/api/lead', maybeRequireKey, async (req, res) => {
     // 🔎 Logea lo que llegó
     console.log('[API] /api/lead received:', JSON.stringify(b, null, 2));
 
-    // Guarda tal cual en colección Hubspot
-    const ins = await mongoose.connection.collection('Hubspot').insertOne({
-      json: b,
-      _meta: { ip, ua, createdAt: now }
-    });
+   // Guarda tal cual en colección hubspot (minúsculas)
+const ins = await mongoose.connection.collection('hubspot').insertOne({
+  json: b,
+  _meta: { ip, ua, createdAt: now }
+});
+
 
     const storedId = ins.insertedId?.toString();
     console.log('[API] lead stored (Hubspot) _id:', storedId);
