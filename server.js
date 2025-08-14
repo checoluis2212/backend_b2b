@@ -77,32 +77,42 @@ const maybeRequireKey = (req, res, next) => {
   next();
 };
 
-// POST /api/lead (recibe webhook y guarda en Mongo)
+// POST /api/lead robusto: des-empaca (body) y guarda tal cual en "Hubspot"
 app.post('/api/lead', maybeRequireKey, async (req, res) => {
   const t0 = Date.now();
   try {
-    const b = req.body || {};
-    const ip = getClientIp(req);
+    // 1) Tomar el payload real sin importar el formato
+    let b = req.body ?? {};
+    if (typeof b === 'string') {
+      try { b = JSON.parse(b); } catch (_) {}
+    }
+    if (b && typeof b.body === 'string') {
+      try { b = JSON.parse(b.body); } catch (_) { b = b.body; }
+    } else if (b && b.body) {
+      b = b.body;
+    }
+
+    // 2) Meta
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
     const ua = req.headers['user-agent'] || '';
     const now = new Date();
 
-    // Guarda tal cual el payload recibido
+    // 3) Guarda en la colección Hubspot el payload "plano"
     const ins = await mongoose.connection.collection('Hubspot').insertOne({
       json: b,
       _meta: { ip, ua, createdAt: now }
     });
 
     const storedId = ins.insertedId?.toString();
-    console.log('[API] lead stored (Hubspot) _id:', storedId);
+    console.log('[API] lead stored (Hubspot) _id:', storedId, 'keys:', Object.keys(b || {}));
 
-    // Responde al cliente/webhook
     res.json({ ok: true, storedId, ms: Date.now() - t0 });
-
   } catch (e) {
     console.error('[API] /api/lead error:', e?.stack || e);
-    return res.status(500).json({ ok: false, error: 'server_error' });
+    res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
+
 
 /* ================== FIN ENDPOINT HUBSPOT LEAD ================== */
 
