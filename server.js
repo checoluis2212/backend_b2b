@@ -79,31 +79,35 @@ const maybeRequireKey = (req, res, next) => {
 
 // POST /api/lead robusto: des-empaca (body) y guarda tal cual en "Hubspot"
 // en server.js (o donde tengas el endpoint actual de /api/lead)
+// POST /api/lead (recibe webhook y guarda en Mongo)
 app.post('/api/lead', maybeRequireKey, async (req, res) => {
   const t0 = Date.now();
   try {
-    const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || '').trim();
+    const b = req.body || {};
+    const ip = getClientIp(req);
     const ua = req.headers['user-agent'] || '';
     const now = new Date();
 
-    // ✅ si n8n mandó todo ($json), usa req.body.body; si mandó sólo $json.body, usa req.body
-    const payload = (req.body && typeof req.body.body === 'object') ? req.body.body : (req.body || {});
+    // 🔎 Logea lo que llegó
+    console.log('[API] /api/lead received:', JSON.stringify(b, null, 2));
 
-    // log mínimo para confirmar qué claves llegaron
-    console.log('[API] /api/lead keys:', Object.keys(payload));
-
+    // Guarda tal cual en colección Hubspot
     const ins = await mongoose.connection.collection('Hubspot').insertOne({
-      json: payload,
+      json: b,
       _meta: { ip, ua, createdAt: now }
     });
 
-    res.json({ ok: true, storedId: ins.insertedId?.toString(), ms: Date.now() - t0 });
+    const storedId = ins.insertedId?.toString();
+    console.log('[API] lead stored (Hubspot) _id:', storedId);
+
+    // ⬅️ Devuelve también lo recibido (para verlo en n8n)
+    res.json({ ok: true, storedId, ms: Date.now() - t0, received: b });
+
   } catch (e) {
     console.error('[API] /api/lead error:', e?.stack || e);
-    res.status(500).json({ ok: false, error: 'server_error' });
+    return res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
-
 
 
 /* ================== FIN ENDPOINT HUBSPOT LEAD ================== */
