@@ -1,10 +1,10 @@
 // utils/ga4.js
 import axios from 'axios';
 
-const MID = process.env.GA4_MEASUREMENT_ID;
-const SEC = process.env.GA4_API_SECRET;
+const MID = import.meta.env.VITE_GA4_MEASUREMENT_ID;
+const SEC = import.meta.env.VITE_GA4_API_SECRET;
 
-const BASE = process.env.NODE_ENV === 'production'
+const BASE = import.meta.env.MODE === 'production'
   ? 'https://www.google-analytics.com/mp/collect'
   : 'https://www.google-analytics.com/debug/mp/collect'; // <- debug en dev
 
@@ -14,7 +14,7 @@ const GA4_URL = `${BASE}?measurement_id=${MID}&api_secret=${SEC}`;
  * Envía un evento a GA4 Measurement Protocol
  */
 export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
-  if (!MID || !SEC) throw new Error('Faltan GA4 env vars (GA4_MEASUREMENT_ID / GA4_API_SECRET)');
+  if (!MID || !SEC) throw new Error('Faltan GA4 env vars (VITE_GA4_MEASUREMENT_ID / VITE_GA4_API_SECRET)');
   if (!clientId) throw new Error('client_id requerido');
   if (!eventName) throw new Error('eventName requerido');
 
@@ -61,7 +61,6 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
 
     const resp = await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
 
-    // Si estamos en /debug, GA4 responde validationMessages
     if (GA4_URL.includes('/debug/')) {
       console.log('[GA4] debug response', JSON.stringify(resp.data, null, 2));
     } else {
@@ -79,7 +78,6 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
    ADICIONES (append-only)
    ======================= */
 
-/** Lee una cookie por nombre */
 export function getCookie(name) {
   try {
     return decodeURIComponent(
@@ -91,7 +89,6 @@ export function getCookie(name) {
   }
 }
 
-/** Extrae client_id desde _ga (GA1.1.A.B -> "A.B") */
 export function getGAClientId() {
   const raw = getCookie('_ga');
   if (!raw) return '';
@@ -99,7 +96,6 @@ export function getGAClientId() {
   return p.length >= 4 ? `${p[2]}.${p[3]}` : '';
 }
 
-/** UTMs desde cookies (con defaults) */
 export function getUTMsFromCookies() {
   const utm_source   = getCookie('utm_source')   || '(not set)';
   const utm_medium   = getCookie('utm_medium')   || '(not set)';
@@ -109,18 +105,6 @@ export function getUTMsFromCookies() {
   return { utm_source, utm_medium, utm_campaign, utm_content, utm_term };
 }
 
-/**
- * Dispara un evento GA4 (Measurement Protocol) y opcionalmente navega.
- * - eventName: nombre del evento
- * - options:
- *    - placement: dónde ocurrió (ej. 'promo_header', 'top_bar')
- *    - params: objeto extra de params GA4
- *    - utm: para sobreescribir UTMs (si no, usa cookies)
- *    - clientId: forzar client_id (si no, usa visitorId/_ga/fallback)
- *    - navigateTo: URL a abrir después del envío
- *    - newTab: abrir en nueva pestaña (default true)
- *    - timeoutMs: máximo a esperar antes de navegar (default 300ms)
- */
 export async function trackGA4Click(eventName, options = {}) {
   const {
     placement,
@@ -143,10 +127,7 @@ export async function trackGA4Click(eventName, options = {}) {
   const extra = {
     page_location: window.location.href,
     page_referrer: document.referrer || '',
-    params: {
-      placement,
-      ...params,
-    },
+    params: { placement, ...params },
   };
 
   try {
@@ -159,15 +140,11 @@ export async function trackGA4Click(eventName, options = {}) {
   }
 
   if (navigateTo) {
-    if (newTab) {
-      window.open(navigateTo, '_blank');
-    } else {
-      window.location.href = navigateTo;
-    }
+    if (newTab) window.open(navigateTo, '_blank');
+    else window.location.href = navigateTo;
   }
 }
 
-/** Helper listo para CTAs de “Empieza/Prueba gratis” */
 export function trackAndGo_PruebaGratis(url, opts = {}) {
   return trackGA4Click('cta_prueba_gratis_click', {
     navigateTo: url,
