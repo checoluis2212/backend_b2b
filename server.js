@@ -77,9 +77,7 @@ const maybeRequireKey = (req, res, next) => {
   next();
 };
 
-// POST /api/lead robusto: des-empaca (body) y guarda tal cual en "Hubspot"
-// en server.js (o donde tengas el endpoint actual de /api/lead)
-// POST /api/lead (recibe webhook y guarda en Mongo)
+// POST /api/lead (recibe webhook o mirror del form, guarda en Mongo y manda GA4)
 app.post('/api/lead', maybeRequireKey, async (req, res) => {
   const t0 = Date.now();
   try {
@@ -88,20 +86,51 @@ app.post('/api/lead', maybeRequireKey, async (req, res) => {
     const ua = req.headers['user-agent'] || '';
     const now = new Date();
 
-    // 🔎 Logea lo que llegó
+    // 🔎 Log request
     console.log('[API] /api/lead received:', JSON.stringify(b, null, 2));
 
-   // Guarda tal cual en colección hubspot (minúsculas)
-const ins = await mongoose.connection.collection('hubspot').insertOne({
-  json: b,
-  _meta: { ip, ua, createdAt: now }
-});
-
+    // Guarda tal cual en colección hubspot (minúsculas)
+    const ins = await mongoose.connection.collection('hubspot').insertOne({
+      json: b,
+      _meta: { ip, ua, createdAt: now }
+    });
 
     const storedId = ins.insertedId?.toString();
     console.log('[API] lead stored (Hubspot) _id:', storedId);
 
-    // ⬅️ Devuelve también lo recibido (para verlo en n8n)
+    // -------- GA4: evento lead_form_submitted con UTMs --------
+    try {
+      // client_id preferido (de tu front o del form HS)
+      const visitorId =
+        b.visitorid || b.visitorId || b._meta?.visitorid || storedId;
+
+      // UTMs (acepta plano o dentro de properties)
+      const utm_source   = b.utm_source   || b.properties?.utm_source;
+      const utm_medium   = b.utm_medium   || b.properties?.utm_medium;
+      const utm_campaign = b.utm_campaign || b.properties?.utm_campaign;
+      const utm_content  = b.utm_content  || b.properties?.utm_content;
+      const utm_term     = b.utm_term     || b.properties?.utm_term;
+
+      await sendGA4Event(
+        visitorId,
+        'lead_form_submitted',
+        { source: utm_source, medium: utm_medium, campaign: utm_campaign, content: utm_content, term: utm_term },
+        {
+          page_location: b.page || b.page_location || '',
+          page_referrer: b.referrer || b.page_referrer || '',
+          params: {
+            form_id: b.formId || b.form_id || 'hubspot_embed'
+          }
+        }
+      );
+
+      console.log('[GA4] lead_form_submitted sent for cid:', visitorId);
+    } catch (err) {
+      console.warn('[GA4] skipped:', err?.message || err);
+    }
+    // -----------------------------------------------------------
+
+    // ⬅️ Respuesta
     res.json({ ok: true, storedId, ms: Date.now() - t0, received: b });
 
   } catch (e) {
@@ -109,7 +138,6 @@ const ins = await mongoose.connection.collection('hubspot').insertOne({
     return res.status(500).json({ ok: false, error: 'server_error' });
   }
 });
-
 
 /* ================== FIN ENDPOINT HUBSPOT LEAD ================== */
 
