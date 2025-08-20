@@ -1,20 +1,27 @@
-// utils/ga4.js
+// utils/ga4.js (Node.js / backend)
 import axios from 'axios';
 
-const MID = import.meta.env.VITE_GA4_MEASUREMENT_ID;
-const SEC = import.meta.env.VITE_GA4_API_SECRET;
+// ===== ENV (Node) =====
+const MID = process.env.GA4_MEASUREMENT_ID;
+const SEC = process.env.GA4_API_SECRET;
 
-const BASE = import.meta.env.MODE === 'production'
-  ? 'https://www.google-analytics.com/mp/collect'
-  : 'https://www.google-analytics.com/debug/mp/collect'; // <- debug en dev
+const BASE =
+  process.env.NODE_ENV === 'production'
+    ? 'https://www.google-analytics.com/mp/collect'
+    : 'https://www.google-analytics.com/debug/mp/collect'; // <- debug en dev
 
 const GA4_URL = `${BASE}?measurement_id=${MID}&api_secret=${SEC}`;
 
+// Flags para no romper en Node si se usan helpers de browser
+const HAS_WINDOW   = typeof window !== 'undefined';
+const HAS_DOCUMENT = typeof document !== 'undefined';
+const HAS_LS       = typeof localStorage !== 'undefined';
+
 /**
- * Envía un evento a GA4 Measurement Protocol
+ * Envía un evento a GA4 Measurement Protocol (backend)
  */
 export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
-  if (!MID || !SEC) throw new Error('Faltan GA4 env vars (VITE_GA4_MEASUREMENT_ID / VITE_GA4_API_SECRET)');
+  if (!MID || !SEC) throw new Error('Faltan GA4 env vars (GA4_MEASUREMENT_ID / GA4_API_SECRET)');
   if (!clientId) throw new Error('client_id requerido');
   if (!eventName) throw new Error('eventName requerido');
 
@@ -51,35 +58,25 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
     }
   };
 
-  try {
-    console.log('[GA4] sending', {
-      url: GA4_URL.includes('/debug/') ? 'DEBUG' : 'COLLECT',
-      eventName,
-      clientId: String(clientId).slice(-8),
-      utm_source, utm_medium, utm_campaign
-    });
+  const resp = await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
 
-    const resp = await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
-
-    if (GA4_URL.includes('/debug/')) {
-      console.log('[GA4] debug response', JSON.stringify(resp.data, null, 2));
-    } else {
-      console.log('[GA4] sent OK', eventName);
-    }
-  } catch (error) {
-    const status = error?.response?.status;
-    const data   = error?.response?.data;
-    console.error('[GA4] error', status, data || error.message);
-    throw error;
+  if (GA4_URL.includes('/debug/')) {
+    console.log('[GA4] debug response', JSON.stringify(resp.data, null, 2));
+  } else {
+    console.log('[GA4] sent OK', eventName);
   }
+  return resp.data;
 }
 
 /* =======================
    ADICIONES (append-only)
    ======================= */
 
+// Estas utilidades usan cookies/DOM; en backend devolvemos valores seguros
+
 export function getCookie(name) {
   try {
+    if (!HAS_DOCUMENT) return '';
     return decodeURIComponent(
       (document.cookie.split('; ').find(x => x.startsWith(name + '=')) || '')
         .split('=')[1] || ''
@@ -105,28 +102,31 @@ export function getUTMsFromCookies() {
   return { utm_source, utm_medium, utm_campaign, utm_content, utm_term };
 }
 
+/**
+ * En backend NO navega (no hay window). Se mantiene para compatibilidad.
+ */
 export async function trackGA4Click(eventName, options = {}) {
   const {
     placement,
     params = {},
     utm = {},
     clientId: forcedClientId,
-    navigateTo,
-    newTab = true,
+    navigateTo,       // ignorado en Node
+    newTab = true,    // ignorado en Node
     timeoutMs = 300,
   } = options;
 
   const cid =
     forcedClientId ||
-    localStorage.getItem('visitorId') ||
+    (HAS_LS ? localStorage.getItem('visitorId') : '') ||
     getGAClientId() ||
     `${Date.now()}.${Math.floor(Math.random() * 1e6)}`;
 
   const utms = Object.keys(utm).length ? utm : getUTMsFromCookies();
 
   const extra = {
-    page_location: window.location.href,
-    page_referrer: document.referrer || '',
+    page_location: HAS_WINDOW ? window.location.href : '',
+    page_referrer: HAS_DOCUMENT ? (document.referrer || '') : '',
     params: { placement, ...params },
   };
 
@@ -136,21 +136,18 @@ export async function trackGA4Click(eventName, options = {}) {
       new Promise((r) => setTimeout(r, timeoutMs)),
     ]);
   } catch (e) {
-    console.warn('[GA4] trackGA4Click error (continuo con navegación)', e);
+    console.warn('[GA4] trackGA4Click (Node) error', e);
   }
 
-  if (navigateTo) {
-    if (newTab) window.open(navigateTo, '_blank');
-    else window.location.href = navigateTo;
-  }
+  // En Node no hay navegación
+  return { ok: true };
 }
 
 export function trackAndGo_PruebaGratis(url, opts = {}) {
+  // En backend no puede "abrir" la URL; solo registramos el evento
   return trackGA4Click('cta_prueba_gratis_click', {
-    navigateTo: url,
     placement: opts.placement || 'promo_header',
     params: { button_text: opts.button_text || 'Prueba/Empieza gratis' },
-    newTab: opts.newTab ?? true,
     timeoutMs: opts.timeoutMs ?? 300,
     clientId: opts.clientId,
     utm: opts.utm,
