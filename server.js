@@ -139,6 +139,8 @@ app.post('/api/lead', maybeRequireKey, async (req, res) => {
   }
 });
 
+
+
 /* ================== FIN ENDPOINT HUBSPOT LEAD ================== */
 
 // Health específico de lead
@@ -155,3 +157,68 @@ app.get('/', (_req, res) => res.send('API OCC B2B viva ✔️'));
 // Levantar servidor
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🌐 Servidor OCC B2B escuchando en puerto ${PORT}`));
+
+// ================== NUEVO: ENDPOINT GA4 CTA BUTTON ==================
+
+// POST /api/ga4/button (envía evento de click de botón a GA4 vía MP)
+app.post('/api/ga4/button', maybeRequireKey, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const ua = req.headers['user-agent'] || '';
+
+    // client_id (visitorId) requerido por MP: toma el que tengas; cae a "anon-<ts>"
+    const visitorId =
+      b.visitorid || b.visitorId || b.cid || `anon-${Date.now()}`;
+
+    // Nombre del evento (por defecto cta_button_clicked)
+    const eventName = b.eventName || 'cta_button_clicked';
+
+    // UTMs (acepta plano u objeto utms)
+    const utms = b.utms || {};
+    const utm_source   = b.utm_source   ?? utms.source   ?? undefined;
+    const utm_medium   = b.utm_medium   ?? utms.medium   ?? undefined;
+    const utm_campaign = b.utm_campaign ?? utms.campaign ?? undefined;
+    const utm_content  = b.utm_content  ?? utms.content  ?? undefined;
+    const utm_term     = b.utm_term     ?? utms.term     ?? undefined;
+
+    // Atributos del botón (opcionales)
+    const button_id    = b.buttonId || b.button_id;
+    const button_text  = b.buttonText || b.button_text;
+    const section      = b.section;
+    const value        = (typeof b.value === 'number') ? b.value : undefined;
+
+    await sendGA4Event(
+      visitorId,
+      eventName,
+      {
+        // Dimensiones de adquisición
+        source: utm_source,
+        medium: utm_medium,
+        campaign: utm_campaign,
+        content: utm_content,
+        term: utm_term,
+
+        // Etiquetas útiles
+        label: button_text || button_id || section,
+        value
+      },
+      {
+        page_location: b.page || b.page_location || '',
+        page_referrer: b.referrer || b.page_referrer || '',
+        user_agent: ua,
+        params: {
+          button_id,
+          button_text,
+          section
+        }
+      }
+    );
+
+    return res.json({ ok: true, event: eventName, cid: visitorId });
+  } catch (e) {
+    console.error('[GA4] /api/ga4/button error:', e?.stack || e);
+    return res.status(500).json({ ok: false, error: 'ga4_button_error' });
+  }
+});
+// ================== FIN ENDPOINT GA4 CTA BUTTON ==================
+
