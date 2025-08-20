@@ -1,35 +1,54 @@
-// models/Lead.js
-import mongoose from 'mongoose';
+// routes/lead.js
+import express from 'express';
+import Lead from '../models/Lead.js';
 
-const LeadSchema = new mongoose.Schema(
-  {
-    visitorId: { type: String, index: true },
-    vidCookie: String,
+const router = express.Router();
 
-    utm: {
-      source: { type: String, default: '(not set)' },
-      medium: { type: String, default: '(not set)' },
-      campaign: { type: String, default: '(not set)' },
-      content: { type: String, default: undefined },
-      term:    { type: String, default: undefined },
-    },
+function getClientIp(req) {
+  return (
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    ''
+  );
+}
 
-    page: String,
-    referrer: String,
-    form_id: { type: String, default: 'hubspot_embed' },
+// Guarda el espejo del submit del form en Mongo
+router.post('/', async (req, res) => {
+  try {
+    const b = req.body || {};
 
-    // Lo que lograste leer del iframe (best-effort)
-    fields: { type: mongoose.Schema.Types.Mixed, default: {} },
+    const doc = await Lead.create({
+      visitorId: b.visitorId || b.visitorid || '',
+      vidCookie: b.vid_cookie || '',
 
-    // Guarda además el payload crudo por si luego necesitas algo más
-    raw: { type: mongoose.Schema.Types.Mixed, default: {} },
+      utm: {
+        source:   b.utm_source   || '(not set)',
+        medium:   b.utm_medium   || '(not set)',
+        campaign: b.utm_campaign || '(not set)',
+        content:  b.utm_content,
+        term:     b.utm_term,
+      },
 
-    _meta: {
-      ip: String,
-      ua: String,
-    }
-  },
-  { timestamps: true, collection: 'leads' }
-);
+      page:     b.page || b.page_location || '',
+      referrer: b.referrer || b.page_referrer || '',
+      form_id:  b.form_id || 'hubspot_embed',
 
-export default mongoose.models.Lead || mongoose.model('Lead', LeadSchema);
+      // ‘fields’ = pares name/value que alcanzaste a leer del iframe
+      fields: b,
+
+      raw: b,
+      _meta: {
+        ip: getClientIp(req),
+        ua: req.headers['user-agent'] || '',
+      },
+    });
+
+    res.json({ ok: true, id: doc._id });
+  } catch (err) {
+    console.error('[API] /api/lead error:', err);
+    res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
+export default router;
