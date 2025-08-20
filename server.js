@@ -160,65 +160,39 @@ app.listen(PORT, () => console.log(`🌐 Servidor OCC B2B escuchando en puerto $
 
 // ================== NUEVO: ENDPOINT GA4 CTA BUTTON ==================
 
-// POST /api/ga4/button (envía evento de click de botón a GA4 vía MP)
-app.post('/api/ga4/button', maybeRequireKey, async (req, res) => {
+// === NUEVO: clic GA4 por backend (mismo estilo que /api/lead) ===
+app.post('/api/click', maybeRequireKey, async (req, res) => {
   try {
     const b = req.body || {};
-    const ua = req.headers['user-agent'] || '';
 
-    // client_id (visitorId) requerido por MP: toma el que tengas; cae a "anon-<ts>"
-    const visitorId =
-      b.visitorid || b.visitorId || b.cid || `anon-${Date.now()}`;
+    // client_id (igual idea que en /api/lead: preferimos visitorId que manda el front)
+    const clientId =
+      b.visitorid || b.visitorId || `web-${Date.now()}.${Math.floor(Math.random() * 1e6)}`;
 
-    // Nombre del evento (por defecto cta_button_clicked)
-    const eventName = b.eventName || 'cta_button_clicked';
+    // UTMs (si las mandas, las tomamos; si no, GA4 las verá como (not set))
+    const utm_source   = b.utm_source   || b.properties?.utm_source   || '(not set)';
+    const utm_medium   = b.utm_medium   || b.properties?.utm_medium   || '(not set)';
+    const utm_campaign = b.utm_campaign || b.properties?.utm_campaign || '(not set)';
+    const utm_content  = b.utm_content  || b.properties?.utm_content  || undefined;
+    const utm_term     = b.utm_term     || b.properties?.utm_term     || undefined;
 
-    // UTMs (acepta plano u objeto utms)
-    const utms = b.utms || {};
-    const utm_source   = b.utm_source   ?? utms.source   ?? undefined;
-    const utm_medium   = b.utm_medium   ?? utms.medium   ?? undefined;
-    const utm_campaign = b.utm_campaign ?? utms.campaign ?? undefined;
-    const utm_content  = b.utm_content  ?? utms.content  ?? undefined;
-    const utm_term     = b.utm_term     ?? utms.term     ?? undefined;
-
-    // Atributos del botón (opcionales)
-    const button_id    = b.buttonId || b.button_id;
-    const button_text  = b.buttonText || b.button_text;
-    const section      = b.section;
-    const value        = (typeof b.value === 'number') ? b.value : undefined;
+    // Nombre del evento (por defecto tu CTA)
+    const eventName = b.eventName || 'cta_prueba_gratis_click';
 
     await sendGA4Event(
-      visitorId,
+      clientId,
       eventName,
-      {
-        // Dimensiones de adquisición
-        source: utm_source,
-        medium: utm_medium,
-        campaign: utm_campaign,
-        content: utm_content,
-        term: utm_term,
-
-        // Etiquetas útiles
-        label: button_text || button_id || section,
-        value
-      },
+      { source: utm_source, medium: utm_medium, campaign: utm_campaign, content: utm_content, term: utm_term },
       {
         page_location: b.page || b.page_location || '',
         page_referrer: b.referrer || b.page_referrer || '',
-        user_agent: ua,
-        params: {
-          button_id,
-          button_text,
-          section
-        }
+        params: { placement: b.placement || 'promo_header' }
       }
     );
 
-    return res.json({ ok: true, event: eventName, cid: visitorId });
-  } catch (e) {
-    console.error('[GA4] /api/ga4/button error:', e?.stack || e);
-    return res.status(500).json({ ok: false, error: 'ga4_button_error' });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[API /api/click] error:', err?.message || err);
+    return res.status(500).json({ ok: false, error: 'ga4_click_error' });
   }
 });
-// ================== FIN ENDPOINT GA4 CTA BUTTON ==================
-
