@@ -5,13 +5,6 @@ const MID = process.env.GA4_MEASUREMENT_ID;
 const SEC = process.env.GA4_API_SECRET;
 const GA4_URL = `https://www.google-analytics.com/mp/collect?measurement_id=${MID}&api_secret=${SEC}`;
 
-/**
- * Envía un evento a GA4 Measurement Protocol
- * @param {string} clientId - Identificador del visitante (ej. Fingerprint visitorId)
- * @param {string} eventName - Nombre del evento, p.ej. "lead_form_submitted"
- * @param {object} utm - { source, medium, campaign, content?, term? }
- * @param {object} extra - { page_location?, page_referrer?, params?: {} }
- */
 export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
   if (!MID || !SEC) throw new Error('Faltan GA4 env vars (GA4_MEASUREMENT_ID / GA4_API_SECRET)');
   if (!clientId) throw new Error('client_id requerido');
@@ -25,12 +18,14 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
 
   const body = {
     client_id: String(clientId),
-    timestamp_micros: Date.now() * 1000, // correcto para MP
+    timestamp_micros: Date.now() * 1000,
     events: [{
       name: eventName,
       params: {
-        engagement_time_msec: 1,            // recomendado por GA4
-        visitor_id: String(clientId),       // param de evento
+        engagement_time_msec: 1,
+        // ayuda a verlo en DebugView mientras pruebas
+        ...(process.env.NODE_ENV !== 'production' ? { debug_mode: true } : {}),
+        visitor_id: String(clientId),
         utm_source,
         utm_medium,
         utm_campaign,
@@ -38,7 +33,7 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
         ...(utm_term ? { utm_term } : {}),
         page_location: extra.page_location || '',
         page_referrer: extra.page_referrer || '',
-        ...(extra.params || {})             // p.ej. { form_id: 'hubspot_embed' }
+        ...(extra.params || {})
       }
     }],
     user_properties: {
@@ -50,5 +45,23 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
     }
   };
 
-  await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
+  try {
+    const r = await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
+    // GA4 suele responder 204 cuando todo bien
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[GA4] collect status:', r.status);
+    }
+  } catch (e) {
+    console.error('[GA4] collect error:', e?.response?.status, e?.response?.data || e.message);
+    throw e;
+  }
+}
+
+/**
+ * Útil para diagnóstico: pega contra /debug/mp/collect y regresa mensajes de validación.
+ */
+export async function sendGA4DebugEvent(body) {
+  const url = `https://www.google-analytics.com/debug/mp/collect?measurement_id=${MID}&api_secret=${SEC}`;
+  const r = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' } });
+  return r.data; // { validationMessages: [...] }
 }
