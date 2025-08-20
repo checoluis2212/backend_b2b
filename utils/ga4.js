@@ -1,35 +1,44 @@
+// utils/ga4.js
 import axios from 'axios';
 
-const MEASUREMENT_ID = process.env.GA4_MEASUREMENT_ID;
-const API_SECRET = process.env.GA4_API_SECRET;
-const GA4_URL = `https://www.google-analytics.com/mp/collect?measurement_id=${MEASUREMENT_ID}&api_secret=${API_SECRET}`;
+const MID = process.env.GA4_MEASUREMENT_ID;
+const SEC = process.env.GA4_API_SECRET;
+const GA4_URL = `https://www.google-analytics.com/mp/collect?measurement_id=${MID}&api_secret=${SEC}`;
 
-export async function sendGA4Event(visitorId, eventName, utmParams = {}) {
-  try {
-    const payload = {
-      client_id: visitorId,
-      user_id: visitorId,
-      events: [
-        {
-          name: eventName,
-          params: {
-            event_timestamp: Date.now(),
-            utm_source: utmParams.source || '(not set)',
-            utm_medium: utmParams.medium || '(not set)',
-            utm_campaign: utmParams.campaign || '(not set)',
-            variant_id: visitorId
-          }
-        }
-      ]
-    };
+export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
+  if (!MID || !SEC) throw new Error('Faltan GA4 env vars');
+  if (!clientId) throw new Error('client_id requerido');
+  if (!eventName) throw new Error('eventName requerido');
 
-    await axios.post(GA4_URL, payload);
+  const utm_source   = utm.source   || utm.utm_source   || '(not set)';
+  const utm_medium   = utm.medium   || utm.utm_medium   || '(not set)';
+  const utm_campaign = utm.campaign || utm.utm_campaign || '(not set)';
 
-    // 🔹 Log seguro (solo en desarrollo, visitorId parcial)
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`✅ Evento ${eventName} enviado a GA4 con visitorId ****${visitorId.slice(-4)}`);
+  const body = {
+    client_id: String(clientId),
+    timestamp_micros: Date.now() * 1000,
+    events: [{
+      name: eventName,
+      params: {
+        engagement_time_msec: 1,
+        // params del evento (visibles en Realtime/Exploration)
+        visitor_id: String(clientId),
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        // contexto opcional
+        page_location: extra.page_location || '',
+        page_referrer: extra.page_referrer || '',
+        ...extra.params
+      }
+    }],
+    // user properties opcionales (persisten por usuario)
+    user_properties: {
+      utm_source:   { value: utm_source },
+      utm_medium:   { value: utm_medium },
+      utm_campaign: { value: utm_campaign }
     }
-  } catch (error) {
-    console.error(`❌ Error enviando evento ${eventName}:`, error.message);
-  }
+  };
+
+  await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
 }
