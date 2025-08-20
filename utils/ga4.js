@@ -3,8 +3,16 @@ import axios from 'axios';
 
 const MID = process.env.GA4_MEASUREMENT_ID;
 const SEC = process.env.GA4_API_SECRET;
-const GA4_URL = `https://www.google-analytics.com/mp/collect?measurement_id=${MID}&api_secret=${SEC}`;
 
+const BASE = process.env.NODE_ENV === 'production'
+  ? 'https://www.google-analytics.com/mp/collect'
+  : 'https://www.google-analytics.com/debug/mp/collect'; // <- debug en dev
+
+const GA4_URL = `${BASE}?measurement_id=${MID}&api_secret=${SEC}`;
+
+/**
+ * Envía un evento a GA4 Measurement Protocol
+ */
 export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
   if (!MID || !SEC) throw new Error('Faltan GA4 env vars (GA4_MEASUREMENT_ID / GA4_API_SECRET)');
   if (!clientId) throw new Error('client_id requerido');
@@ -23,8 +31,6 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
       name: eventName,
       params: {
         engagement_time_msec: 1,
-        // ayuda a verlo en DebugView mientras pruebas
-        ...(process.env.NODE_ENV !== 'production' ? { debug_mode: true } : {}),
         visitor_id: String(clientId),
         utm_source,
         utm_medium,
@@ -46,22 +52,25 @@ export async function sendGA4Event(clientId, eventName, utm = {}, extra = {}) {
   };
 
   try {
-    const r = await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
-    // GA4 suele responder 204 cuando todo bien
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[GA4] collect status:', r.status);
-    }
-  } catch (e) {
-    console.error('[GA4] collect error:', e?.response?.status, e?.response?.data || e.message);
-    throw e;
-  }
-}
+    console.log('[GA4] sending', {
+      url: GA4_URL.includes('/debug/') ? 'DEBUG' : 'COLLECT',
+      eventName,
+      clientId: String(clientId).slice(-8),
+      utm_source, utm_medium, utm_campaign
+    });
 
-/**
- * Útil para diagnóstico: pega contra /debug/mp/collect y regresa mensajes de validación.
- */
-export async function sendGA4DebugEvent(body) {
-  const url = `https://www.google-analytics.com/debug/mp/collect?measurement_id=${MID}&api_secret=${SEC}`;
-  const r = await axios.post(url, body, { headers: { 'Content-Type': 'application/json' } });
-  return r.data; // { validationMessages: [...] }
+    const resp = await axios.post(GA4_URL, body, { headers: { 'Content-Type': 'application/json' } });
+
+    // Si estamos en /debug, GA4 responde validationMessages
+    if (GA4_URL.includes('/debug/')) {
+      console.log('[GA4] debug response', JSON.stringify(resp.data, null, 2));
+    } else {
+      console.log('[GA4] sent OK', eventName);
+    }
+  } catch (error) {
+    const status = error?.response?.status;
+    const data   = error?.response?.data;
+    console.error('[GA4] error', status, data || error.message);
+    throw error;
+  }
 }
